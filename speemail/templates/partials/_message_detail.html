@@ -1,0 +1,80 @@
+{% set from_ea = msg.get('from', {}).get('emailAddress', {}) %}
+{% set sender_name = from_ea.get('name', '') %}
+{% set sender_addr = from_ea.get('address', '') %}
+{% set body = msg.get('body', {}) %}
+{% set is_html = body.get('contentType', '') | lower == 'html' %}
+
+<div class="detail-header">
+  <button class="detail-back btn btn-ghost btn-sm"
+    onclick="document.getElementById('message-detail-pane').innerHTML='<div class=\'detail-empty\'><div class=\'empty-icon\'>📬</div><div class=\'empty-title\'>Select a message</div></div>'; document.getElementById('inbox-list-pane').classList.remove('detail-open')">
+    ← Back
+  </button>
+
+  <div class="detail-actions">
+    <button id="reply-btn" data-action="reply"
+      class="btn btn-primary btn-sm"
+      hx-get="/partials/reply/{{ msg.id }}"
+      hx-target="#modal-container"
+      hx-swap="innerHTML">
+      Reply <kbd>r</kbd>
+    </button>
+    <button id="forward-btn" data-action="forward"
+      class="btn btn-secondary btn-sm"
+      hx-get="/partials/forward/{{ msg.id }}"
+      hx-target="#modal-container"
+      hx-swap="innerHTML">
+      Forward <kbd>f</kbd>
+    </button>
+    <button class="btn btn-ghost btn-sm"
+      hx-post="/api/v1/inbox/messages/{{ msg.id }}/trash"
+      hx-target="#toast-container"
+      hx-swap="beforeend"
+      hx-on::after-request="document.getElementById('message-detail-pane').innerHTML=''; document.getElementById('inbox-list-pane').classList.remove('detail-open')"
+      title="Move to trash (#)">
+      🗑 Trash
+    </button>
+  </div>
+</div>
+
+<div class="detail-body">
+  <h2 class="detail-subject">{{ msg.subject or '(no subject)' }}</h2>
+
+  <div class="detail-meta">
+    <div class="detail-from">
+      <strong>From:</strong>
+      {% if sender_name %}{{ sender_name }} &lt;{{ sender_addr }}&gt;{% else %}{{ sender_addr }}{% endif %}
+    </div>
+    {% set to_list = msg.get('toRecipients', []) %}
+    {% if to_list %}
+    <div class="detail-to">
+      <strong>To:</strong>
+      {% for r in to_list %}
+        {{ r.get('emailAddress', {}).get('name') or r.get('emailAddress', {}).get('address', '') }}{% if not loop.last %}, {% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% set cc_list = msg.get('ccRecipients', []) %}
+    {% if cc_list %}
+    <div class="detail-cc">
+      <strong>Cc:</strong>
+      {% for r in cc_list %}
+        {{ r.get('emailAddress', {}).get('name') or r.get('emailAddress', {}).get('address', '') }}{% if not loop.last %}, {% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+    <div class="detail-date">{{ msg.get('receivedDateTime') | timeago }}</div>
+  </div>
+
+  <div class="detail-content">
+    {% if is_html %}
+      <iframe
+        class="detail-iframe"
+        srcdoc="{{ body.get('content', '') | e }}"
+        sandbox="allow-same-origin"
+        onload="this.style.height=this.contentDocument.body.scrollHeight+40+'px'">
+      </iframe>
+    {% else %}
+      <pre class="detail-text">{{ body.get('content', '') }}</pre>
+    {% endif %}
+  </div>
+</div>

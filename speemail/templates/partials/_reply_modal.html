@@ -1,0 +1,44 @@
+{% set from_ea = msg.get('from', {}).get('emailAddress', {}) %}
+{% set sender = from_ea.get('name') or from_ea.get('address', '') %}
+
+<dialog class="modal compose-modal" id="reply-modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 class="modal-title">Reply to {{ sender }}</h2>
+      <button class="modal-close" onclick="document.getElementById('reply-modal').close()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="original-context">
+        <div class="context-label">Original</div>
+        <div class="context-subject">{{ msg.subject or '(no subject)' }}</div>
+        <div class="context-preview">{{ msg.bodyPreview or '' }}</div>
+      </div>
+
+      <form
+        hx-post="/api/v1/inbox/messages/{{ msg.id }}/reply"
+        hx-target="#toast-container"
+        hx-swap="beforeend"
+        hx-on::after-request="if(event.detail.successful) document.getElementById('reply-modal').close()"
+        class="compose-form">
+
+        <div class="compose-field compose-field-body">
+          <textarea name="body" class="form-textarea compose-textarea"
+            placeholder="Write your reply…" rows="10" autofocus></textarea>
+        </div>
+
+        <div class="modal-actions">
+          <button type="submit" class="btn btn-primary">Send Reply</button>
+          <button type="button" class="btn btn-ghost"
+            onclick="document.getElementById('reply-modal').close()">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</dialog>
+
+<script>
+  (function() {
+    const m = document.getElementById('reply-modal');
+    if (m && !m.open) { m.showModal(); m.querySelector('textarea')?.focus(); }
+  })();
+</script>

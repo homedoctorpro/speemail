@@ -1,0 +1,52 @@
+{% if messages %}
+  {% for msg in messages %}
+    {% set from_ea = msg.get('from', {}).get('emailAddress', {}) %}
+    {% set sender = from_ea.get('name') or from_ea.get('address', 'Unknown') %}
+    <div
+      id="row-{{ msg.id }}"
+      class="message-row {% if not msg.isRead %}unread{% endif %}"
+      hx-get="/api/v1/inbox/messages/{{ msg.id }}"
+      hx-target="#message-detail-pane"
+      hx-swap="innerHTML"
+      hx-on::after-request="document.getElementById('inbox-list-pane').classList.add('detail-open'); document.getElementById('row-{{ msg.id }}').classList.remove('unread')"
+      data-message-id="{{ msg.id }}"
+      tabindex="0">
+      <div class="message-row-sender">{{ sender | truncate(22, true, '') }}</div>
+      <div class="message-row-subject">
+        {{ msg.subject or '(no subject)' | truncate(55, true, '…') }}
+        {% if msg.hasAttachments %}
+          <span class="attach-icon" title="Has attachments">📎</span>
+        {% endif %}
+      </div>
+      <div class="message-row-preview">{{ msg.bodyPreview or '' | truncate(80, true, '…') }}</div>
+      <div class="message-row-meta">
+        <span class="message-row-time">{{ msg.receivedDateTime | timeago }}</span>
+        <button class="row-action-btn"
+          data-action="trash"
+          title="Move to trash (#)"
+          hx-post="/api/v1/inbox/messages/{{ msg.id }}/trash"
+          hx-target="#toast-container"
+          hx-swap="beforeend"
+          hx-on::after-request="document.getElementById('row-{{ msg.id }}').remove()"
+          onclick="event.stopPropagation()">🗑</button>
+      </div>
+    </div>
+  {% endfor %}
+
+  {% if has_more %}
+    <div class="load-more-wrap">
+      <button class="btn btn-secondary btn-sm"
+        hx-get="/api/v1/inbox/messages?skip={{ skip + top }}"
+        hx-target="#inbox-message-list"
+        hx-swap="beforeend"
+        hx-on::before-request="this.textContent='Loading…'"
+        >Load more</button>
+    </div>
+  {% endif %}
+
+{% else %}
+  <div class="empty-state">
+    <div class="empty-icon">📭</div>
+    <div class="empty-title">Inbox is empty</div>
+  </div>
+{% endif %}

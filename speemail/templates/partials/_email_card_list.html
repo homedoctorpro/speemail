@@ -1,0 +1,12 @@
+{% if emails %}
+  <div class="queue-count">{{ emails | length }} email{{ 's' if emails | length != 1 else '' }} pending</div>
+  {% for email in emails %}
+    {% include "partials/_email_card.html" %}
+  {% endfor %}
+{% else %}
+  <div class="empty-state">
+    <div class="empty-icon">✅</div>
+    <div class="empty-title">Queue is clear</div>
+    <div class="empty-body">No emails need attention right now. Speemail will alert you when follow-ups are due.</div>
+  </div>
+{% endif %}

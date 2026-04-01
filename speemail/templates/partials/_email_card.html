@@ -1,0 +1,98 @@
+{% set is_sent = email.status in ['sent', 'auto_sent'] %}
+{% set is_rejected = email.status == 'rejected' %}
+{% set has_error = email.status == 'ai_error' %}
+{% set confidence = email.ai_confidence_score %}
+
+<div id="card-{{ email.id }}"
+  class="card email-card {% if is_sent %}card-sent{% elif is_rejected %}card-rejected{% elif has_error %}card-error{% endif %}">
+
+  <div class="card-header">
+    {% if email.email_type == 'follow_up' %}
+      <span class="badge badge-orange">Follow-Up Due</span>
+    {% else %}
+      <span class="badge badge-blue">Quick Reply</span>
+    {% endif %}
+
+    {% if is_sent %}
+      <span class="badge badge-green">Sent</span>
+    {% elif is_rejected %}
+      <span class="badge badge-gray">Rejected</span>
+    {% elif has_error %}
+      <span class="badge badge-red">Draft Failed</span>
+    {% endif %}
+
+    <span class="card-time">{{ email.sent_at | timeago }}</span>
+  </div>
+
+  <div class="card-body">
+    <div class="email-subject">{{ email.original_subject }}</div>
+
+    {% if email.email_type == 'follow_up' %}
+      <div class="email-meta">To: {{ email.original_to }}</div>
+    {% else %}
+      <div class="email-meta">From: {{ email.original_from }}</div>
+    {% endif %}
+
+    {% if email.ai_draft_body and not is_rejected %}
+      <div class="draft-preview">
+        <span class="draft-label">AI Draft:</span>
+        {{ (email.ai_draft_body or '')[:200] }}{% if (email.ai_draft_body or '') | length > 200 %}…{% endif %}
+      </div>
+
+      {% if confidence is not none %}
+        <div class="confidence-bar-wrap">
+          <span class="confidence-label">Confidence</span>
+          <div class="confidence-bar">
+            <div class="confidence-fill confidence-{{ email.confidence_label() }}"
+              style="width: {{ confidence | confidence_pct }}%"></div>
+          </div>
+          <span class="confidence-pct">{{ confidence | confidence_pct }}%</span>
+        </div>
+        {% if email.ai_reasoning %}
+          <div class="confidence-reason">{{ email.ai_reasoning }}</div>
+        {% endif %}
+      {% endif %}
+    {% endif %}
+
+    {% if is_rejected and email.ai_reasoning %}
+      <div class="skip-reason">{{ email.ai_reasoning }}</div>
+    {% endif %}
+  </div>
+
+  {% if not is_sent and not is_rejected and not has_error and email.ai_draft_body %}
+    <div class="card-actions">
+      <button class="btn btn-primary btn-sm"
+        hx-post="/api/v1/emails/{{ email.id }}/approve"
+        hx-target="#card-{{ email.id }}"
+        hx-swap="outerHTML"
+        hx-confirm="Send this follow-up?">
+        Approve &amp; Send
+      </button>
+
+      <button class="btn btn-secondary btn-sm"
+        hx-get="/api/v1/emails/{{ email.id }}/draft"
+        hx-target="#modal-container"
+        hx-swap="innerHTML">
+        Edit &amp; Send
+      </button>
+
+      <button class="btn btn-ghost btn-sm"
+        hx-post="/api/v1/emails/{{ email.id }}/reject"
+        hx-target="#card-{{ email.id }}"
+        hx-swap="outerHTML"
+        hx-confirm="Reject this draft?">
+        Reject
+      </button>
+    </div>
+  {% elif has_error %}
+    <div class="card-actions">
+      <span class="error-msg">Could not generate a draft. You may reply manually in Outlook.</span>
+      <button class="btn btn-ghost btn-sm"
+        hx-post="/api/v1/emails/{{ email.id }}/reject"
+        hx-target="#card-{{ email.id }}"
+        hx-swap="outerHTML">
+        Dismiss
+      </button>
+    </div>
+  {% endif %}
+</div>

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pip install -e \".[dev]\" --quiet)",
+      "Bash(python -m alembic upgrade head)"
+    ]
+  }
+}

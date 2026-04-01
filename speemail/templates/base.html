@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Speemail{% endblock %}</title>
+  <script src="https://unpkg.com/htmx.org@2.0.0" integrity="sha384-wS5l5IKJBvK6sPTKa2WZ1js3d947pvWXbPJ1OmWfEuxLgeHcEbjUUA5i9V5ZkpCw" crossorigin="anonymous"></script>
+  <link rel="stylesheet" href="/static/style.css" />
+  <meta name="current-path" content="{{ request.url.path }}" />
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-brand">
+      <span class="nav-logo">⚡</span>
+      <span class="nav-title">Speemail</span>
+    </div>
+    <div class="nav-links">
+      <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">Queue</a>
+      <a href="/inbox" class="nav-link {% if request.url.path == '/inbox' %}active{% endif %}">Inbox</a>
+      <a href="/history" class="nav-link {% if request.url.path == '/history' %}active{% endif %}">History</a>
+      <a href="/settings" class="nav-link {% if request.url.path == '/settings' %}active{% endif %}">Settings</a>
+    </div>
+    <div class="nav-actions">
+      <button
+        class="btn btn-sm btn-secondary"
+        hx-post="/api/v1/scheduler/trigger"
+        hx-target="#toast-container"
+        hx-swap="beforeend"
+        hx-indicator="#check-spinner">
+        <span id="check-spinner" class="htmx-indicator spinner-inline"></span>
+        Check Now
+      </button>
+      <button class="btn btn-sm btn-ghost" onclick="toggleShortcutsHelp()" title="Keyboard shortcuts (?)">⌨</button>
+      <span id="auth-badge"
+        hx-get="/auth/status"
+        hx-trigger="load"
+        hx-swap="outerHTML">
+        <span class="badge badge-gray">…</span>
+      </span>
+    </div>
+  </nav>
+
+  <div id="toast-container" class="toast-container"></div>
+
+  <main class="main {% block page_class %}{% endblock %}">
+    {% block content %}{% endblock %}
+  </main>
+
+  <div id="modal-container"></div>
+
+  <script src="/static/keyboard.js"></script>
+  <script>
+    // Close modal when clicking backdrop
+    document.addEventListener('click', function(e) {
+      const modal = document.querySelector('dialog[open]');
+      if (modal && e.target === modal) modal.close();
+    });
+    // Auto-open dialog when HTMX injects it
+    document.body.addEventListener('htmx:afterSwap', function(e) {
+      const dialog = e.detail.target.querySelector('dialog');
+      if (dialog && !dialog.open) dialog.showModal();
+    });
+    function toggleShortcutsHelp() {
+      // Delegate to keyboard.js handler via synthetic keydown
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: '?' }));
+    }
+  </script>
+</body>
+</html>

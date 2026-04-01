@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "speemail"
+version = "0.1.0"
+description = "AI-powered Outlook email follow-up assistant"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0,<0.116",
+    "uvicorn[standard]>=0.32.0,<0.33",
+    "jinja2>=3.1.4,<3.2",
+    "python-multipart>=0.0.12",
+    "msal>=1.31.0,<2.0",
+    "httpx>=0.28.0,<0.29",
+    "sqlalchemy>=2.0.36,<2.1",
+    "alembic>=1.14.0,<1.15",
+    "anthropic>=0.40.0",
+    "apscheduler>=3.10.4,<4.0",
+    "pydantic-settings>=2.6.0,<2.7",
+    "python-dotenv>=1.0.1,<1.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+]
+
+[project.scripts]
+speemail = "speemail.main:run"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["speemail*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+ignore_missing_imports = true

@@ -1,0 +1,12 @@
+<div class="toast toast-{{ type | default('info') }}" id="toast-{{ range(10000) | random }}"
+  _="on load wait 3s then remove me">
+  {{ message }}
+</div>
+<script>
+  // Auto-dismiss after 3s (fallback if hyperscript not loaded)
+  (function() {
+    var toasts = document.querySelectorAll('.toast');
+    var t = toasts[toasts.length - 1];
+    if (t) setTimeout(function() { t.remove(); }, 3000);
+  })();
+</script>

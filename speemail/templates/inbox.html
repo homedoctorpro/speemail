@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Inbox — Speemail{% endblock %}
+{% block page_class %}main-inbox{% endblock %}
+
+{% block content %}
+<div class="inbox-layout">
+
+  <!-- Left pane: message list -->
+  <div class="inbox-list-pane" id="inbox-list-pane">
+
+    <div class="inbox-toolbar">
+      <h2 class="inbox-folder-title">Inbox</h2>
+      <div class="inbox-toolbar-right">
+        <button id="compose-btn" class="btn btn-primary btn-sm"
+          hx-get="/partials/compose"
+          hx-target="#modal-container"
+          hx-swap="innerHTML">
+          Compose
+        </button>
+      </div>
+    </div>
+
+    <div
+      id="inbox-message-list"
+      hx-get="/api/v1/inbox/messages"
+      hx-trigger="load"
+      hx-swap="innerHTML"
+      hx-indicator="#inbox-spinner">
+      <div class="loading-state"><span class="spinner"></span> Loading inbox…</div>
+    </div>
+
+    <span id="inbox-spinner" class="htmx-indicator loading-overlay">
+      <span class="spinner"></span>
+    </span>
+  </div>
+
+  <!-- Right pane: message detail -->
+  <div class="inbox-detail-pane" id="message-detail-pane">
+    <div class="detail-empty">
+      <div class="empty-icon">📬</div>
+      <div class="empty-title">Select a message</div>
+      <div class="empty-body">Press <kbd>j</kbd>/<kbd>k</kbd> to navigate, <kbd>Enter</kbd> to open.</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Compose modal container -->
+<div id="modal-container"></div>
+{% endblock %}

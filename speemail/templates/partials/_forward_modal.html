@@ -1,0 +1,47 @@
+<dialog class="modal compose-modal" id="forward-modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 class="modal-title">Forward</h2>
+      <button class="modal-close" onclick="document.getElementById('forward-modal').close()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="original-context">
+        <div class="context-label">Forwarding</div>
+        <div class="context-subject">{{ msg.subject or '(no subject)' }}</div>
+        <div class="context-preview">{{ msg.bodyPreview or '' }}</div>
+      </div>
+
+      <form
+        hx-post="/api/v1/inbox/messages/{{ msg.id }}/forward"
+        hx-target="#toast-container"
+        hx-swap="beforeend"
+        hx-on::after-request="if(event.detail.successful) document.getElementById('forward-modal').close()"
+        class="compose-form">
+
+        <div class="compose-field">
+          <label class="compose-label">To</label>
+          <input type="text" name="to" class="form-input compose-input"
+            placeholder="recipient@example.com" autofocus required />
+        </div>
+
+        <div class="compose-field compose-field-body">
+          <textarea name="body" class="form-textarea compose-textarea"
+            placeholder="Add a note (optional)…" rows="6"></textarea>
+        </div>
+
+        <div class="modal-actions">
+          <button type="submit" class="btn btn-primary">Forward</button>
+          <button type="button" class="btn btn-ghost"
+            onclick="document.getElementById('forward-modal').close()">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</dialog>
+
+<script>
+  (function() {
+    const m = document.getElementById('forward-modal');
+    if (m && !m.open) { m.showModal(); m.querySelector('input[name=to]')?.focus(); }
+  })();
+</script>

@@ -1,0 +1,48 @@
+<dialog class="modal compose-modal" id="compose-modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 class="modal-title">New Email</h2>
+      <button class="modal-close" onclick="document.getElementById('compose-modal').close()">✕</button>
+    </div>
+    <div class="modal-body">
+      <form
+        hx-post="/api/v1/compose"
+        hx-target="#toast-container"
+        hx-swap="beforeend"
+        hx-on::after-request="if(event.detail.successful) document.getElementById('compose-modal').close()"
+        class="compose-form">
+
+        <div class="compose-field">
+          <label class="compose-label">To</label>
+          <input type="text" name="to" class="form-input compose-input"
+            placeholder="recipient@example.com, another@example.com"
+            autofocus required />
+        </div>
+
+        <div class="compose-field">
+          <label class="compose-label">Subject</label>
+          <input type="text" name="subject" class="form-input compose-input"
+            placeholder="Subject" required />
+        </div>
+
+        <div class="compose-field compose-field-body">
+          <textarea name="body" class="form-textarea compose-textarea"
+            placeholder="Write your message…" rows="12"></textarea>
+        </div>
+
+        <div class="modal-actions">
+          <button type="submit" class="btn btn-primary">Send</button>
+          <button type="button" class="btn btn-ghost"
+            onclick="document.getElementById('compose-modal').close()">Discard</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</dialog>
+
+<script>
+  (function() {
+    const m = document.getElementById('compose-modal');
+    if (m && !m.open) m.showModal();
+  })();
+</script>

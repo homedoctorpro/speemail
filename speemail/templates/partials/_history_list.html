@@ -1,0 +1,58 @@
+{% if emails %}
+  <table class="history-table">
+    <thead>
+      <tr>
+        <th>Subject</th>
+        <th>Type</th>
+        <th>Status</th>
+        <th>Confidence</th>
+        <th>Date</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for email in emails %}
+      <tr class="history-row" onclick="this.nextElementSibling.classList.toggle('expanded')">
+        <td class="history-subject">{{ email.original_subject }}</td>
+        <td>
+          {% if email.email_type == 'follow_up' %}
+            <span class="badge badge-orange">Follow-Up</span>
+          {% else %}
+            <span class="badge badge-blue">Quick Reply</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if email.status in ['sent', 'auto_sent'] %}
+            <span class="badge badge-green">{{ 'Auto-Sent' if email.status == 'auto_sent' else 'Sent' }}</span>
+          {% elif email.status == 'rejected' %}
+            <span class="badge badge-gray">Rejected</span>
+          {% else %}
+            <span class="badge badge-red">Error</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if email.ai_confidence_score is not none %}
+            <span class="confidence-text confidence-{{ email.confidence_label() }}">
+              {{ email.ai_confidence_score | confidence_pct }}%
+            </span>
+          {% else %}—{% endif %}
+        </td>
+        <td class="history-date">{{ email.final_sent_at | timeago if email.final_sent_at else email.updated_at | timeago }}</td>
+      </tr>
+      <tr class="history-detail">
+        <td colspan="5">
+          <div class="history-detail-body">
+            <strong>Sent body:</strong>
+            <pre class="history-body-text">{{ email.effective_body() or '(no body)' }}</pre>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <div class="empty-state">
+    <div class="empty-icon">📭</div>
+    <div class="empty-title">No history yet</div>
+    <div class="empty-body">Approved and rejected emails will appear here.</div>
+  </div>
+{% endif %}

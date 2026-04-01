@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}History — Speemail{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">History</h1>
+  <p class="page-subtitle">Sent and rejected emails.</p>
+</div>
+
+<div class="filter-bar">
+  <button class="filter-btn active" hx-get="/api/v1/emails/history" hx-target="#history-list" hx-swap="innerHTML">All</button>
+</div>
+
+<div
+  id="history-list"
+  hx-get="/api/v1/emails/history"
+  hx-trigger="load"
+  hx-swap="innerHTML">
+  <div class="loading-state"><span class="spinner"></span> Loading…</div>
+</div>
+{% endblock %}

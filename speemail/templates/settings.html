@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Settings — Speemail{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Settings</h1>
+  <p class="page-subtitle">Configure Speemail's behaviour.</p>
+</div>
+
+<div class="card settings-card"
+  hx-get="/api/v1/settings"
+  hx-trigger="load"
+  hx-target="#settings-form-container"
+  hx-swap="innerHTML">
+  <div id="settings-form-container">
+    <div class="loading-state"><span class="spinner"></span> Loading…</div>
+  </div>
+</div>
+
+<template id="settings-form-tpl">
+  <form
+    hx-post="/api/v1/settings"
+    hx-target="#settings-feedback"
+    hx-swap="innerHTML"
+    class="settings-form">
+
+    <div class="form-group">
+      <label class="form-label">Follow-up after (days)</label>
+      <input type="number" name="follow_up_days" class="form-input" min="1" max="30" />
+      <span class="form-hint">Flag sent emails as needing follow-up after this many days with no reply.</span>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Check email every</label>
+      <select name="poll_interval_minutes" class="form-select">
+        <option value="5">5 minutes</option>
+        <option value="15">15 minutes</option>
+        <option value="30">30 minutes</option>
+        <option value="60">1 hour</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Email signature</label>
+      <textarea name="email_signature" class="form-textarea" rows="4"
+        placeholder="Appended to all drafted emails…"></textarea>
+    </div>
+
+    <hr class="divider" />
+
+    <div class="form-group">
+      <label class="form-label toggle-label">
+        <input type="checkbox" name="auto_send_enabled" value="true" id="auto-send-toggle" />
+        Enable auto-send for high-confidence drafts
+      </label>
+      <span class="form-hint">When enabled, drafts above the confidence threshold are sent automatically.</span>
+    </div>
+
+    <div class="form-group" id="threshold-group" style="display:none">
+      <label class="form-label">Auto-send confidence threshold: <span id="threshold-val">95%</span></label>
+      <input type="range" name="auto_send_threshold" min="0.80" max="1.00" step="0.01"
+        value="0.95" id="threshold-slider"
+        oninput="document.getElementById('threshold-val').textContent = Math.round(this.value*100)+'%'" />
+    </div>
+
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Save Settings</button>
+      <div id="settings-feedback"></div>
+    </div>
+  </form>
+</template>
+
+<script>
+  // Toggle auto-send threshold visibility
+  document.addEventListener('change', function(e) {
+    if (e.target.id === 'auto-send-toggle') {
+      document.getElementById('threshold-group').style.display =
+        e.target.checked ? 'block' : 'none';
+    }
+  });
+
+  // Render settings form when HTMX loads the JSON
+  document.body.addEventListener('htmx:afterRequest', function(e) {
+    if (e.detail.pathInfo && e.detail.pathInfo.requestPath === '/api/v1/settings' &&
+        e.detail.requestConfig.verb === 'get') {
+      try {
+        const data = JSON.parse(e.detail.xhr.responseText);
+        const tpl = document.getElementById('settings-form-tpl');
+        const container = document.getElementById('settings-form-container');
+        const clone = tpl.content.cloneNode(true);
+
+        // Populate values
+        clone.querySelector('[name=follow_up_days]').value = data.follow_up_days || 3;
+        clone.querySelector('[name=poll_interval_minutes]').value = data.poll_interval_minutes || 15;
+        clone.querySelector('[name=email_signature]').value = data.email_signature || '';
+
+        const autoSend = data.auto_send_enabled === 'true';
+        clone.querySelector('#auto-send-toggle').checked = autoSend;
+        const threshGroup = clone.querySelector('#threshold-group');
+        if (autoSend) threshGroup.style.display = 'block';
+
+        const slider = clone.querySelector('#threshold-slider');
+        slider.value = data.auto_send_threshold || 0.95;
+        clone.querySelector('#threshold-val').textContent =
+          Math.round((data.auto_send_threshold || 0.95) * 100) + '%';
+
+        container.innerHTML = '';
+        container.appendChild(clone);
+        htmx.process(container);
+      } catch(err) { /* ignore */ }
+    }
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,48 @@
+<dialog class="modal" id="edit-modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 class="modal-title">Edit Draft</h2>
+      <button class="modal-close" onclick="document.getElementById('edit-modal').close()">✕</button>
+    </div>
+
+    <div class="modal-body">
+      <div class="original-context">
+        <div class="context-label">Original email</div>
+        <div class="context-subject">{{ email.original_subject }}</div>
+        {% if email.email_type == 'follow_up' %}
+          <div class="context-meta">To: {{ email.original_to }}</div>
+        {% else %}
+          <div class="context-meta">From: {{ email.original_from }}</div>
+        {% endif %}
+        <div class="context-preview">{{ email.original_body_preview or '' }}</div>
+      </div>
+
+      <form
+        hx-post="/api/v1/emails/{{ email.id }}/approve-edited"
+        hx-target="#card-{{ email.id }}"
+        hx-swap="outerHTML"
+        hx-on::after-request="document.getElementById('edit-modal').close()">
+
+        <div class="form-group">
+          <label class="form-label">Your reply</label>
+          <textarea name="edited_body" class="form-textarea draft-textarea"
+            rows="10">{{ email.ai_draft_body or '' }}</textarea>
+        </div>
+
+        <div class="modal-actions">
+          <button type="submit" class="btn btn-primary">Send</button>
+          <button type="button" class="btn btn-ghost"
+            onclick="document.getElementById('edit-modal').close()">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</dialog>
+
+<script>
+  // Show modal immediately after HTMX injects it
+  (function() {
+    const m = document.getElementById('edit-modal');
+    if (m) m.showModal();
+  })();
+</script>
