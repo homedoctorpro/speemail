@@ -42,7 +42,6 @@ class Settings(BaseSettings):
     def graph_scopes(self) -> list[str]:
         return [
             "Mail.Read",
-            "Mail.ReadWrite",
             "Mail.Send",
             "User.Read",
         ]
