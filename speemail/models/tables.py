@@ -1,7 +1,7 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import DateTime, Float, Integer, String, Text, func
+from sqlalchemy.orm import Mapped, mapped_column
 
 from speemail.models.database import Base
 
@@ -20,7 +20,7 @@ class TrackedEmail(Base):
     # 'follow_up' | 'quick_reply'
 
     status: Mapped[str] = mapped_column(String, nullable=False, default="pending_approval")
-    # 'pending_approval' | 'approved' | 'rejected' | 'sent' | 'auto_sent' | 'ai_error'
+    # 'pending_approval' | 'approved' | 'rejected' | 'sent' | 'ai_error'
 
     # Original email metadata
     original_subject: Mapped[str] = mapped_column(String, nullable=False)
@@ -48,11 +48,6 @@ class TrackedEmail(Base):
         DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
-    # Relationships
-    auto_send_logs: Mapped[list["AutoSendLog"]] = relationship(
-        back_populates="tracked_email", cascade="all, delete-orphan"
-    )
-
     def effective_body(self) -> str | None:
         """Return user-edited body if available, otherwise AI draft."""
         return self.user_edited_body or self.ai_draft_body
@@ -74,24 +69,6 @@ class PollCursor(Base):
     cursor_name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     # 'inbox_quick_reply' | 'sent_follow_up'
     last_checked: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-
-
-class AutoSendLog(Base):
-    __tablename__ = "auto_send_log"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    tracked_email_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("tracked_emails.id"), nullable=False
-    )
-    confidence_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    action: Mapped[str] = mapped_column(String, nullable=False)
-    # 'auto_sent' | 'held_for_review'
-    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, server_default=func.now()
-    )
-
-    tracked_email: Mapped["TrackedEmail"] = relationship(back_populates="auto_send_logs")
 
 
 class Setting(Base):

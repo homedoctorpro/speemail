@@ -19,8 +19,6 @@ class Settings(BaseSettings):
     # Behaviour
     follow_up_days: int = 3
     poll_interval_minutes: int = 15
-    auto_send_threshold: float = 0.95
-    auto_send_enabled: bool = False
 
     # Server
     port: int = 8765
