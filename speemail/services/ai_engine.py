@@ -100,7 +100,9 @@ ORIGINAL EMAIL (sent {days} day{"s" if days != 1 else ""} ago with no reply):
 Subject: {email.original_subject}
 To: {email.original_to or "unknown"}
 Body:
+---BEGIN EMAIL CONTENT---
 {body_text or "(no body content)"}
+---END EMAIL CONTENT---
 
 TASK: Draft a polite follow-up. Requirements:
 - 2–4 sentences maximum
@@ -155,7 +157,9 @@ INCOMING EMAIL:
 From: {email.original_from}
 Subject: {email.original_subject}
 Body:
+---BEGIN EMAIL CONTENT---
 {body_text or "(no body content)"}
+---END EMAIL CONTENT---
 
 TASK: First decide if this email needs a quick reply, then draft one if yes.
 
