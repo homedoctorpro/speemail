@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Auth Error — Speemail{% endblock %}
+{% block content %}
+<div style="max-width: 480px; margin: 4rem auto; text-align: center;">
+  <div style="font-size: 2.5rem; margin-bottom: 1rem;">⚠️</div>
+  <h1 class="page-title" style="margin-bottom: 0.5rem;">Sign-in failed</h1>
+  <p class="page-subtitle" style="margin-bottom: 1.5rem;">{{ error }}</p>
+  <a href="/auth/login" class="btn btn-primary">Try again</a>
+</div>
+{% endblock %}

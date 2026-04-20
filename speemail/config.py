@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     # Microsoft Graph
     azure_client_id: str = ""
     azure_tenant_id: str = "common"
+    azure_client_secret: str = ""       # confidential client secret from Azure portal
+    azure_redirect_uri: str = "http://localhost:8765/auth/callback"
 
     # Anthropic
     anthropic_api_key: str = ""

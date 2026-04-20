@@ -3,14 +3,15 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from speemail.api.deps import get_graph_dep
 from speemail.auth.graph_auth import (
+    AuthError,
     GraphClient,
     clear_token_cache,
-    get_device_flow_state,
-    initiate_device_flow_async,
+    handle_auth_callback,
+    start_auth_flow,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -36,50 +37,36 @@ def auth_status(request: Request, client: GraphClient = Depends(get_graph_dep)):
     else:
         html = (
             '<span id="auth-badge">'
-            '<a href="/auth/device-flow" class="badge badge-red" '
-            'title="Click to connect your Microsoft account">⚠ Connect account</a>'
+            '<a href="/auth/login" class="badge badge-red">'
+            'Sign in with Microsoft</a>'
             '</span>'
         )
     return HTMLResponse(html)
 
 
-@router.get("/device-flow", response_class=HTMLResponse)
-def device_flow_page(request: Request):
+@router.get("/login")
+def login(request: Request):
+    """Redirect the user to Microsoft's OAuth sign-in page."""
     try:
-        flow = initiate_device_flow_async()
-    except Exception as exc:
+        auth_url = start_auth_flow()
+        return RedirectResponse(auth_url)
+    except AuthError as exc:
         return request.app.state.templates.TemplateResponse(
-            "device_flow.html",
-            {"request": request, "error": str(exc)},
+            "auth_error.html", {"request": request, "error": str(exc)}
         )
-    return request.app.state.templates.TemplateResponse(
-        "device_flow.html",
-        {
-            "request": request,
-            "user_code": flow["user_code"],
-            "verification_uri": flow["verification_uri"],
-            "error": None,
-        },
-    )
 
 
-@router.get("/device-flow/status", response_class=HTMLResponse)
-def device_flow_status(request: Request):
-    state = get_device_flow_state()
-    if state["completed"]:
-        return HTMLResponse(
-            '<div id="flow-status" class="badge badge-green">✓ Connected! '
-            '<a href="/" style="color:inherit">Return to app →</a></div>'
+@router.get("/callback")
+def callback(request: Request):
+    """Microsoft redirects here after the user signs in."""
+    try:
+        handle_auth_callback(dict(request.query_params))
+    except AuthError as exc:
+        logger.error("OAuth callback error: %s", exc)
+        return request.app.state.templates.TemplateResponse(
+            "auth_error.html", {"request": request, "error": str(exc)}
         )
-    if state["error"]:
-        return HTMLResponse(
-            f'<div id="flow-status" class="badge badge-red">Error: {state["error"]}</div>'
-        )
-    return HTMLResponse(
-        '<div id="flow-status" class="badge badge-gray" '
-        'hx-get="/auth/device-flow/status" hx-trigger="every 3s" hx-swap="outerHTML">'
-        'Waiting for sign-in…</div>'
-    )
+    return RedirectResponse("/", status_code=302)
 
 
 @router.post("/logout")

@@ -1,17 +1,13 @@
 """
-Microsoft Graph API authentication via MSAL device-code flow.
+Microsoft Graph API authentication via MSAL confidential client + OAuth auth-code flow.
 
-Terminal (local/SSH): prints a URL + code for the user to authenticate in their browser.
-Web (server): use initiate_device_flow_async() + poll_device_flow_status() so the
-              web UI can display the code and detect completion via HTMX polling.
-
-Subsequent runs: silently refreshes using the cached refresh token.
+First run: user clicks "Sign in with Microsoft" → redirected to Microsoft → redirected back.
+Subsequent runs: MSAL silently refreshes the access token using the cached refresh token.
+Refresh tokens renew on every use (every 15-min poll), so they never expire in practice.
 """
 from __future__ import annotations
 
 import logging
-import threading
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -23,12 +19,8 @@ logger = logging.getLogger(__name__)
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
-# State for the async web device-flow
-_device_flow_state: dict = {
-    "flow": None,       # the MSAL flow dict
-    "completed": False,
-    "error": None,
-}
+# Holds the in-progress OAuth flow dict between the /auth/login redirect and /auth/callback
+_pending_flow: dict | None = None
 
 
 class AuthError(Exception):
@@ -48,9 +40,10 @@ def _save_cache(cache: msal.SerializableTokenCache) -> None:
         settings.token_cache_path.write_text(cache.serialize(), encoding="utf-8")
 
 
-def _build_app(cache: msal.SerializableTokenCache) -> msal.PublicClientApplication:
-    return msal.PublicClientApplication(
+def _build_app(cache: msal.SerializableTokenCache) -> msal.ConfidentialClientApplication:
+    return msal.ConfidentialClientApplication(
         client_id=settings.azure_client_id,
+        client_credential=settings.azure_client_secret,
         authority=f"https://login.microsoftonline.com/{settings.azure_tenant_id}",
         token_cache=cache,
     )
@@ -58,13 +51,13 @@ def _build_app(cache: msal.SerializableTokenCache) -> msal.PublicClientApplicati
 
 def acquire_token() -> str:
     """
-    Return a valid access token, refreshing silently if possible.
-    Falls back to device-code flow (terminal) when no cached token exists.
+    Return a valid access token. Silently refreshes if a cached token exists.
+    Raises AuthError if no token is cached (user must sign in via /auth/login).
     """
     if not settings.azure_client_id:
-        raise AuthError(
-            "AZURE_CLIENT_ID is not set. Copy .env.example to .env and fill in your values."
-        )
+        raise AuthError("AZURE_CLIENT_ID is not set.")
+    if not settings.azure_client_secret:
+        raise AuthError("AZURE_CLIENT_SECRET is not set.")
 
     cache = _load_cache()
     app = _build_app(cache)
@@ -76,73 +69,51 @@ def acquire_token() -> str:
             _save_cache(cache)
             return result["access_token"]
 
-    # Terminal device-code flow (used on first run / SSH setup)
-    logger.info("No cached token — starting device-code flow")
-    flow = app.initiate_device_flow(scopes=settings.graph_scopes)
-    if "user_code" not in flow:
-        raise AuthError("Failed to initiate device-code flow")
-
-    print("\n" + "=" * 60)
-    print(f"  Visit:      {flow['verification_uri']}")
-    print(f"  Enter code: {flow['user_code']}")
-    print("=" * 60 + "\n")
-
-    result = app.acquire_token_by_device_flow(flow)
-    if "access_token" not in result:
-        raise AuthError(
-            f"Authentication failed: {result.get('error_description', result.get('error'))}"
-        )
-
-    _save_cache(cache)
-    logger.info("Authentication successful")
-    return result["access_token"]
+    raise AuthError("No cached token — user must sign in at /auth/login")
 
 
-# ── Web device-flow (for re-auth from the browser) ────────────────────────────
+# ── OAuth auth-code flow ──────────────────────────────────────────────────────
 
-def initiate_device_flow_async() -> dict:
+def start_auth_flow() -> str:
     """
-    Start a device-code flow and spin up a background thread to wait for completion.
-    Returns the flow dict containing 'user_code' and 'verification_uri'.
+    Begin the OAuth flow. Returns the Microsoft login URL to redirect the user to.
+    Stores the flow state in _pending_flow for use in handle_auth_callback().
     """
-    if not settings.azure_client_id:
-        raise AuthError("AZURE_CLIENT_ID is not set.")
+    global _pending_flow
+    cache = _load_cache()
+    app = _build_app(cache)
+
+    flow = app.initiate_auth_code_flow(
+        scopes=settings.graph_scopes,
+        redirect_uri=settings.azure_redirect_uri,
+    )
+    _pending_flow = flow
+    return flow["auth_uri"]
+
+
+def handle_auth_callback(callback_params: dict) -> None:
+    """
+    Complete the OAuth flow after Microsoft redirects back.
+    callback_params is the full query-string dict from the /auth/callback request.
+    Raises AuthError on failure.
+    """
+    global _pending_flow
+    if not _pending_flow:
+        raise AuthError("No pending auth flow — please start from /auth/login")
 
     cache = _load_cache()
     app = _build_app(cache)
 
-    flow = app.initiate_device_flow(scopes=settings.graph_scopes)
-    if "user_code" not in flow:
-        raise AuthError("Failed to initiate device-code flow")
+    result = app.acquire_token_by_auth_code_flow(_pending_flow, callback_params)
+    _pending_flow = None
 
-    _device_flow_state.update({"flow": flow, "completed": False, "error": None})
+    if "access_token" not in result:
+        raise AuthError(
+            result.get("error_description") or result.get("error") or "Authentication failed"
+        )
 
-    threading.Thread(
-        target=_wait_for_device_flow,
-        args=(app, flow, cache),
-        daemon=True,
-    ).start()
-
-    return flow
-
-
-def _wait_for_device_flow(
-    app: msal.PublicClientApplication,
-    flow: dict,
-    cache: msal.SerializableTokenCache,
-) -> None:
-    result = app.acquire_token_by_device_flow(flow)
-    if "access_token" in result:
-        _save_cache(cache)
-        _device_flow_state["completed"] = True
-        logger.info("Web device-flow authentication completed")
-    else:
-        _device_flow_state["error"] = result.get("error_description", "Authentication failed")
-        logger.warning("Web device-flow failed: %s", _device_flow_state["error"])
-
-
-def get_device_flow_state() -> dict:
-    return dict(_device_flow_state)
+    _save_cache(cache)
+    logger.info("OAuth authentication completed successfully")
 
 
 def clear_token_cache() -> None:
@@ -153,17 +124,10 @@ def clear_token_cache() -> None:
 
 
 class GraphClient:
-    """
-    Thin wrapper around httpx that injects a valid Bearer token on every request.
-    Automatically refreshes the token before it expires.
-    """
-
-    def __init__(self) -> None:
-        self._token: str | None = None
+    """Thin httpx wrapper that injects a Bearer token on every request."""
 
     def _get_token(self) -> str:
-        self._token = acquire_token()
-        return self._token
+        return acquire_token()
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -241,9 +205,7 @@ class GraphClient:
                 "message": {
                     "subject": subject,
                     "body": {"contentType": body_type, "content": body},
-                    "toRecipients": [
-                        {"emailAddress": {"address": addr}} for addr in to
-                    ],
+                    "toRecipients": [{"emailAddress": {"address": addr}} for addr in to],
                 },
                 "saveToSentItems": True,
             },
@@ -263,24 +225,22 @@ class GraphClient:
 
     def reply_to_message(self, message_id: str, body_text: str, subject: str | None = None) -> None:
         draft = self.create_reply_draft(message_id)
-        draft_id = draft["id"]
         update: dict = {"body": {"contentType": "text", "content": body_text}}
         if subject:
             update["subject"] = subject
-        self.update_draft(draft_id, update)
-        self.send_draft(draft_id)
+        self.update_draft(draft["id"], update)
+        self.send_draft(draft["id"])
 
     def forward_message(self, message_id: str, to: list[str], body_text: str) -> None:
         draft = self.create_forward_draft(message_id)
-        draft_id = draft["id"]
         self.update_draft(
-            draft_id,
+            draft["id"],
             {
                 "toRecipients": [{"emailAddress": {"address": addr}} for addr in to],
                 "body": {"contentType": "text", "content": body_text},
             },
         )
-        self.send_draft(draft_id)
+        self.send_draft(draft["id"])
 
     def is_authenticated(self) -> bool:
         cache = _load_cache()

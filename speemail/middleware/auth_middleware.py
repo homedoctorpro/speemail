@@ -10,7 +10,7 @@ from starlette.responses import RedirectResponse
 from speemail.config import settings
 
 # Paths that don't require a password
-_EXEMPT = ("/login", "/static", "/auth/device-flow", "/auth/status", "/auth/logout")
+_EXEMPT = ("/login", "/static", "/auth/login", "/auth/callback", "/auth/status", "/auth/logout")
 
 
 def _make_token() -> str:
