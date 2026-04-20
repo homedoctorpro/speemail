@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Connect Account — Speemail{% endblock %}
+
+{% block content %}
+<div style="max-width: 480px; margin: 4rem auto;">
+  <div class="card" style="text-align: center; padding: 2.5rem;">
+    <div style="font-size: 2.5rem; margin-bottom: 1rem;">🔐</div>
+    <h1 class="page-title" style="margin-bottom: 0.5rem;">Connect your Microsoft account</h1>
+    <p class="page-subtitle" style="margin-bottom: 2rem;">
+      Sign in once and Speemail will keep your token refreshed for 90 days.
+    </p>
+
+    {% if error %}
+      <div class="badge badge-red" style="display: inline-block; margin-bottom: 1.5rem;">{{ error }}</div>
+    {% else %}
+      <div style="background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; margin-bottom: 1.5rem;">
+        <p style="font-size: 0.875rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+          1. Open this URL in your browser:
+        </p>
+        <a href="{{ verification_uri }}" target="_blank" class="btn btn-primary" style="margin-bottom: 1.25rem; display: inline-block;">
+          {{ verification_uri }}
+        </a>
+        <p style="font-size: 0.875rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+          2. Enter this code when prompted:
+        </p>
+        <div style="font-size: 2rem; font-weight: 800; letter-spacing: 0.15em; font-family: monospace; color: var(--primary);">
+          {{ user_code }}
+        </div>
+      </div>
+
+      <div id="flow-status" class="badge badge-gray"
+        hx-get="/auth/device-flow/status"
+        hx-trigger="every 3s"
+        hx-swap="outerHTML">
+        Waiting for sign-in…
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

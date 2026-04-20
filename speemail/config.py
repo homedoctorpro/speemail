@@ -22,6 +22,8 @@ class Settings(BaseSettings):
 
     # Server
     port: int = 8765
+    server_mode: bool = False   # set SERVER_MODE=true in production
+    app_password: str = ""      # set APP_PASSWORD in production
 
     # Paths (derived, not from env)
     @property

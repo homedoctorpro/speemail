@@ -1,13 +1,16 @@
 """
 Microsoft Graph API authentication via MSAL device-code flow.
 
-First run: prints a URL + code for the user to authenticate in their browser.
+Terminal (local/SSH): prints a URL + code for the user to authenticate in their browser.
+Web (server): use initiate_device_flow_async() + poll_device_flow_status() so the
+              web UI can display the code and detect completion via HTMX polling.
+
 Subsequent runs: silently refreshes using the cached refresh token.
 """
 from __future__ import annotations
 
-import json
 import logging
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +22,13 @@ from speemail.config import settings
 logger = logging.getLogger(__name__)
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
+
+# State for the async web device-flow
+_device_flow_state: dict = {
+    "flow": None,       # the MSAL flow dict
+    "completed": False,
+    "error": None,
+}
 
 
 class AuthError(Exception):
@@ -49,7 +59,7 @@ def _build_app(cache: msal.SerializableTokenCache) -> msal.PublicClientApplicati
 def acquire_token() -> str:
     """
     Return a valid access token, refreshing silently if possible.
-    Falls back to device-code flow on first run or after cache expiry.
+    Falls back to device-code flow (terminal) when no cached token exists.
     """
     if not settings.azure_client_id:
         raise AuthError(
@@ -59,7 +69,6 @@ def acquire_token() -> str:
     cache = _load_cache()
     app = _build_app(cache)
 
-    # Try silent acquisition first
     accounts = app.get_accounts()
     if accounts:
         result = app.acquire_token_silent(settings.graph_scopes, account=accounts[0])
@@ -67,16 +76,18 @@ def acquire_token() -> str:
             _save_cache(cache)
             return result["access_token"]
 
-    # Fall back to interactive browser login
-    logger.info("No cached token — opening browser for login")
-    print("\n" + "=" * 60)
-    print("  Speemail is opening your browser to sign in.")
-    print("  Sign in with your Microsoft account, then return here.\n")
+    # Terminal device-code flow (used on first run / SSH setup)
+    logger.info("No cached token — starting device-code flow")
+    flow = app.initiate_device_flow(scopes=settings.graph_scopes)
+    if "user_code" not in flow:
+        raise AuthError("Failed to initiate device-code flow")
 
-    result = app.acquire_token_interactive(
-        scopes=settings.graph_scopes,
-        prompt="select_account",
-    )
+    print("\n" + "=" * 60)
+    print(f"  Visit:      {flow['verification_uri']}")
+    print(f"  Enter code: {flow['user_code']}")
+    print("=" * 60 + "\n")
+
+    result = app.acquire_token_by_device_flow(flow)
     if "access_token" not in result:
         raise AuthError(
             f"Authentication failed: {result.get('error_description', result.get('error'))}"
@@ -87,8 +98,54 @@ def acquire_token() -> str:
     return result["access_token"]
 
 
+# ── Web device-flow (for re-auth from the browser) ────────────────────────────
+
+def initiate_device_flow_async() -> dict:
+    """
+    Start a device-code flow and spin up a background thread to wait for completion.
+    Returns the flow dict containing 'user_code' and 'verification_uri'.
+    """
+    if not settings.azure_client_id:
+        raise AuthError("AZURE_CLIENT_ID is not set.")
+
+    cache = _load_cache()
+    app = _build_app(cache)
+
+    flow = app.initiate_device_flow(scopes=settings.graph_scopes)
+    if "user_code" not in flow:
+        raise AuthError("Failed to initiate device-code flow")
+
+    _device_flow_state.update({"flow": flow, "completed": False, "error": None})
+
+    threading.Thread(
+        target=_wait_for_device_flow,
+        args=(app, flow, cache),
+        daemon=True,
+    ).start()
+
+    return flow
+
+
+def _wait_for_device_flow(
+    app: msal.PublicClientApplication,
+    flow: dict,
+    cache: msal.SerializableTokenCache,
+) -> None:
+    result = app.acquire_token_by_device_flow(flow)
+    if "access_token" in result:
+        _save_cache(cache)
+        _device_flow_state["completed"] = True
+        logger.info("Web device-flow authentication completed")
+    else:
+        _device_flow_state["error"] = result.get("error_description", "Authentication failed")
+        logger.warning("Web device-flow failed: %s", _device_flow_state["error"])
+
+
+def get_device_flow_state() -> dict:
+    return dict(_device_flow_state)
+
+
 def clear_token_cache() -> None:
-    """Remove the cached token (logout)."""
     path = settings.token_cache_path
     if path.exists():
         path.unlink()
@@ -105,7 +162,6 @@ class GraphClient:
         self._token: str | None = None
 
     def _get_token(self) -> str:
-        # Always try silent refresh — MSAL handles expiry internally
         self._token = acquire_token()
         return self._token
 
@@ -125,7 +181,6 @@ class GraphClient:
         url = path if path.startswith("http") else f"{GRAPH_BASE}{path}"
         response = httpx.post(url, headers=self._headers(), json=body, timeout=30)
         response.raise_for_status()
-        # Some Graph POST endpoints return 202 Accepted with no body
         if response.status_code == 202 or not response.content:
             return {}
         return response.json()
@@ -146,10 +201,7 @@ class GraphClient:
     def get_me(self) -> dict:
         return self.get("/me?$select=displayName,mail,userPrincipalName")
 
-    # ── Inbox / folder browsing ────────────────────────────────────────────
-
     def list_messages(self, folder: str = "Inbox", top: int = 30, skip: int = 0) -> dict:
-        """Return one page of messages with a count and nextLink."""
         return self.get(
             f"/me/mailFolders/{folder}/messages",
             params={
@@ -165,7 +217,6 @@ class GraphClient:
         )
 
     def get_message(self, message_id: str) -> dict:
-        """Fetch full message with body HTML."""
         return self.get(
             f"/me/messages/{message_id}",
             params={
@@ -183,10 +234,7 @@ class GraphClient:
     def move_to_trash(self, message_id: str) -> None:
         self.post(f"/me/messages/{message_id}/move", {"destinationId": "deleteditems"})
 
-    # ── Sending ────────────────────────────────────────────────────────────
-
     def send_new_email(self, to: list[str], subject: str, body: str, body_type: str = "text") -> None:
-        """Send a brand-new email."""
         self.post(
             "/me/sendMail",
             {
@@ -213,10 +261,7 @@ class GraphClient:
     def send_draft(self, draft_id: str) -> None:
         self.post(f"/me/messages/{draft_id}/send", {})
 
-    def reply_to_message(
-        self, message_id: str, body_text: str, subject: str | None = None
-    ) -> None:
-        """Create a reply draft, update body, send."""
+    def reply_to_message(self, message_id: str, body_text: str, subject: str | None = None) -> None:
         draft = self.create_reply_draft(message_id)
         draft_id = draft["id"]
         update: dict = {"body": {"contentType": "text", "content": body_text}}
@@ -226,15 +271,12 @@ class GraphClient:
         self.send_draft(draft_id)
 
     def forward_message(self, message_id: str, to: list[str], body_text: str) -> None:
-        """Create a forward draft, set recipients and body, send."""
         draft = self.create_forward_draft(message_id)
         draft_id = draft["id"]
         self.update_draft(
             draft_id,
             {
-                "toRecipients": [
-                    {"emailAddress": {"address": addr}} for addr in to
-                ],
+                "toRecipients": [{"emailAddress": {"address": addr}} for addr in to],
                 "body": {"contentType": "text", "content": body_text},
             },
         )
@@ -246,18 +288,16 @@ class GraphClient:
         return bool(app.get_accounts())
 
     def get_paginated(self, path: str, params: dict | None = None) -> list[dict]:
-        """Fetch all pages of a Graph API list response."""
         results = []
         url: str | None = path if path.startswith("http") else f"{GRAPH_BASE}{path}"
         while url:
             data = self.get(url, params=params)
             results.extend(data.get("value", []))
             url = data.get("@odata.nextLink")
-            params = None  # nextLink already contains params
+            params = None
         return results
 
 
-# Module-level singleton used by services
 _client: GraphClient | None = None
 
 

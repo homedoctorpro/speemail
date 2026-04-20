@@ -8,17 +8,37 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from speemail import scheduler
-from speemail.api.routes import auth, chat, dashboard, emails, inbox, settings, scheduler_routes, tasks
+from speemail.api.routes import (
+    auth,
+    chat,
+    dashboard,
+    emails,
+    inbox,
+    login,
+    scheduler_routes,
+    settings,
+    tasks,
+)
+from speemail.middleware.auth_middleware import PasswordAuthMiddleware
 from speemail.models.database import init_db
+
+
+def _run_migrations() -> None:
+    try:
+        from alembic import command
+        from alembic.config import Config
+        command.upgrade(Config("alembic.ini"), "head")
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("Migration skipped: %s", exc)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+    _run_migrations()
     init_db()
     scheduler.start_scheduler()
     yield
-    # Shutdown
     scheduler.stop_scheduler()
 
 
@@ -30,20 +50,18 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Static files
+    app.add_middleware(PasswordAuthMiddleware)
+
     static_dir = Path(__file__).parent.parent / "static"
     static_dir.mkdir(exist_ok=True)
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
-    # Jinja2 templates
     templates_dir = Path(__file__).parent.parent / "templates"
     app.state.templates = Jinja2Templates(directory=str(templates_dir))
-
-    # Add custom filters
     _register_template_filters(app.state.templates)
 
-    # Routers
     app.include_router(auth.router)
+    app.include_router(login.router)
     app.include_router(dashboard.router)
     app.include_router(inbox.router)
     app.include_router(emails.router)

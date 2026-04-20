@@ -1,0 +1,30 @@
+# Fly.io deployment config for Speemail
+# Deploy with: fly launch (first time) or fly deploy (updates)
+app = "speemail"        # change this to your chosen app name
+primary_region = "lax"  # nearest Fly region: lax, iad, lhr, fra, syd, etc.
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8765"
+  SERVER_MODE = "true"
+
+# Keep one machine always running (needed for APScheduler background jobs)
+[[vm]]
+  memory = "256mb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[http_service]
+  internal_port = 8765
+  force_https = true
+  auto_stop_machines = false   # must stay running for background email polling
+  auto_start_machines = true
+  min_machines_running = 1
+
+# Persistent volume for SQLite DB + MSAL token cache
+[[mounts]]
+  source = "speemail_data"
+  destination = "/app/data"
+  initial_size = "1gb"
