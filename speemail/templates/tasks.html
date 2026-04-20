@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Tasks — Speemail{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Tasks</h1>
+  <p class="page-subtitle">Your to-do list, blended with email.</p>
+</div>
+
+<!-- Create task form -->
+<div class="card task-create-card">
+  <form
+    hx-post="/api/v1/tasks"
+    hx-target="#open-task-list"
+    hx-swap="afterbegin"
+    hx-on::after-request="this.reset()">
+    <div class="task-create-row">
+      <input class="form-input task-title-input" type="text" name="title" placeholder="Add a task…" required autocomplete="off" />
+      <select class="form-select task-priority-select" name="priority">
+        <option value="high">High</option>
+        <option value="medium" selected>Medium</option>
+        <option value="low">Low</option>
+      </select>
+      <input class="form-input task-due-input" type="date" name="due_date" title="Due date (optional)" />
+      <button class="btn btn-primary btn-sm" type="submit">Add</button>
+    </div>
+    <input type="hidden" name="description" value="" />
+  </form>
+</div>
+
+<!-- Open tasks -->
+<div class="task-section-header">Open</div>
+<div id="open-task-list">
+  {% for task in open_tasks %}
+    {% include "partials/_task_card.html" %}
+  {% else %}
+    <div class="empty-state">
+      <div class="empty-icon">✅</div>
+      <div class="empty-title">All done!</div>
+      <div class="empty-body">Add a task above to get started.</div>
+    </div>
+  {% endfor %}
+</div>
+
+<!-- Done tasks -->
+{% if done_tasks %}
+<details class="done-section">
+  <summary class="task-section-header done-summary">Completed ({{ done_tasks | length }})</summary>
+  <div id="done-task-list">
+    {% for task in done_tasks %}
+      {% include "partials/_task_card.html" %}
+    {% endfor %}
+  </div>
+</details>
+{% endif %}
+{% endblock %}

@@ -1,3 +1,10 @@
-from speemail.models.tables import AutoSendLog, PollCursor, Setting, TrackedEmail
+from speemail.models.tables import (
+    ChatMessage,
+    PollCursor,
+    Setting,
+    Task,
+    TrackedEmail,
+    UserMemory,
+)
 
-__all__ = ["TrackedEmail", "PollCursor", "AutoSendLog", "Setting"]
+__all__ = ["TrackedEmail", "PollCursor", "Setting", "Task", "UserMemory", "ChatMessage"]

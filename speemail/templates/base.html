@@ -15,8 +15,10 @@
       <span class="nav-title">Speemail</span>
     </div>
     <div class="nav-links">
-      <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">Queue</a>
+      <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">Home</a>
       <a href="/inbox" class="nav-link {% if request.url.path == '/inbox' %}active{% endif %}">Inbox</a>
+      <a href="/tasks" class="nav-link {% if request.url.path == '/tasks' %}active{% endif %}">Tasks</a>
+      <a href="/queue" class="nav-link {% if request.url.path == '/queue' %}active{% endif %}">AI Queue</a>
       <a href="/history" class="nav-link {% if request.url.path == '/history' %}active{% endif %}">History</a>
       <a href="/settings" class="nav-link {% if request.url.path == '/settings' %}active{% endif %}">Settings</a>
     </div>
@@ -30,6 +32,7 @@
         <span id="check-spinner" class="htmx-indicator spinner-inline"></span>
         Check Now
       </button>
+      <button class="btn btn-sm btn-ghost" onclick="toggleChat()" title="AI Assistant (\)">💬</button>
       <button class="btn btn-sm btn-ghost" onclick="toggleShortcutsHelp()" title="Keyboard shortcuts (?)">⌨</button>
       <span id="auth-badge"
         hx-get="/auth/status"
@@ -48,6 +51,30 @@
 
   <div id="modal-container"></div>
 
+  <!-- Chat panel (always in DOM, toggled via CSS class) -->
+  <div id="chat-panel" class="chat-panel">
+    <div class="chat-header">
+      <span class="chat-title">💬 Speemail AI</span>
+      <button class="chat-close-btn" onclick="toggleChat()" title="Close">✕</button>
+    </div>
+    <div id="chat-messages" class="chat-messages"
+      hx-get="/api/v1/chat/messages"
+      hx-trigger="chat-open once"
+      hx-swap="innerHTML"
+      hx-on::after-request="scrollChatToBottom()">
+    </div>
+    <form class="chat-input-form"
+      hx-post="/api/v1/chat"
+      hx-target="#chat-messages"
+      hx-swap="beforeend"
+      hx-indicator="#chat-spinner"
+      hx-on::after-request="this.reset(); scrollChatToBottom()">
+      <input class="chat-input" type="text" name="message" placeholder="Ask me anything…" autocomplete="off" />
+      <span id="chat-spinner" class="htmx-indicator spinner spinner-inline"></span>
+      <button class="btn btn-primary btn-sm" type="submit">Send</button>
+    </form>
+  </div>
+
   <script src="/static/keyboard.js"></script>
   <script>
     // Close modal when clicking backdrop
@@ -61,8 +88,22 @@
       if (dialog && !dialog.open) dialog.showModal();
     });
     function toggleShortcutsHelp() {
-      // Delegate to keyboard.js handler via synthetic keydown
       document.dispatchEvent(new KeyboardEvent('keydown', { key: '?' }));
+    }
+
+    // Chat panel
+    function toggleChat() {
+      const panel = document.getElementById('chat-panel');
+      const isOpen = panel.classList.toggle('chat-open');
+      if (isOpen) {
+        htmx.trigger(document.getElementById('chat-messages'), 'chat-open');
+        setTimeout(() => panel.querySelector('.chat-input')?.focus(), 100);
+      }
+    }
+
+    function scrollChatToBottom() {
+      const msgs = document.getElementById('chat-messages');
+      if (msgs) msgs.scrollTop = msgs.scrollHeight;
     }
   </script>
 </body>

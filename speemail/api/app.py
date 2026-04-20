@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from speemail import scheduler
-from speemail.api.routes import auth, dashboard, emails, inbox, settings, scheduler_routes
+from speemail.api.routes import auth, chat, dashboard, emails, inbox, settings, scheduler_routes, tasks
 from speemail.models.database import init_db
 
 
@@ -49,6 +49,8 @@ def create_app() -> FastAPI:
     app.include_router(emails.router)
     app.include_router(settings.router)
     app.include_router(scheduler_routes.router)
+    app.include_router(tasks.router)
+    app.include_router(chat.router)
 
     return app
 

@@ -1,0 +1,8 @@
+{% for task in open_tasks %}
+  {% include "partials/_task_card.html" %}
+{% else %}
+  <div class="empty-state">
+    <div class="empty-icon">✅</div>
+    <div class="empty-title">All done!</div>
+  </div>
+{% endfor %}

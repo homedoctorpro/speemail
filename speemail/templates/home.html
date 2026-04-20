@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Home — Speemail{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Good morning</h1>
+  <p class="page-subtitle">Here's what needs your attention today.</p>
+</div>
+
+<div class="home-grid">
+
+  <!-- Needs Your Reply -->
+  <div class="home-section">
+    <div class="home-section-header">
+      <span class="home-section-title">Needs Your Reply</span>
+      <a href="/inbox" class="home-section-link">See all →</a>
+    </div>
+    <div id="needs-reply-list"
+      hx-get="/api/v1/dashboard/needs-reply"
+      hx-trigger="load"
+      hx-swap="innerHTML">
+      <div class="loading-state"><span class="spinner"></span> Loading…</div>
+    </div>
+  </div>
+
+  <!-- Awaiting Their Response -->
+  <div class="home-section">
+    <div class="home-section-header">
+      <span class="home-section-title">Awaiting Response</span>
+      <a href="/queue" class="home-section-link">See queue →</a>
+    </div>
+    {% if follow_ups %}
+      <div class="home-email-list">
+        {% for email in follow_ups %}
+          <div class="home-email-row">
+            <div class="home-email-subject">{{ email.original_subject }}</div>
+            <div class="home-email-meta">To: {{ email.original_to }} · {{ email.sent_at | timeago }}</div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="home-empty">No sent emails awaiting response.</div>
+    {% endif %}
+  </div>
+
+  <!-- Tasks -->
+  <div class="home-section">
+    <div class="home-section-header">
+      <span class="home-section-title">Tasks</span>
+      <a href="/tasks" class="home-section-link">See all →</a>
+    </div>
+    {% if open_tasks %}
+      <div class="home-task-list">
+        {% for task in open_tasks %}
+          <div class="home-task-row">
+            <span class="priority-dot priority-{{ task.priority }}"></span>
+            <span class="home-task-title">{{ task.title }}</span>
+            <span class="badge badge-{{ 'blue' if task.status == 'in_progress' else 'gray' }} home-task-badge">{{ task.status | replace('_', ' ') }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="home-empty">No open tasks. <a href="/tasks">Add one →</a></div>
+    {% endif %}
+  </div>
+
+  <!-- AI Queue -->
+  <div class="home-section">
+    <div class="home-section-header">
+      <span class="home-section-title">AI Queue</span>
+      <a href="/queue" class="home-section-link">Review →</a>
+    </div>
+    {% if queue_count > 0 %}
+      <div class="home-queue-badge">
+        <span class="queue-count-big">{{ queue_count }}</span>
+        <span class="queue-count-label">draft{{ 's' if queue_count != 1 else '' }} awaiting approval</span>
+      </div>
+    {% else %}
+      <div class="home-empty">All clear — no drafts pending.</div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

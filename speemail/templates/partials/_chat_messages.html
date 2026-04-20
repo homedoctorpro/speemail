@@ -1,0 +1,9 @@
+{% for msg in messages %}
+<div class="chat-msg chat-msg-{{ msg.role }}">
+  <div class="chat-msg-content">{{ msg.content }}</div>
+</div>
+{% else %}
+<div class="chat-msg chat-msg-assistant">
+  <div class="chat-msg-content">Hi! I'm your Speemail assistant. Ask me anything about your emails or tasks, and I can create tasks, search emails, and remember important context for you.</div>
+</div>
+{% endfor %}

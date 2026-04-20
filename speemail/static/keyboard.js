@@ -165,7 +165,8 @@
           <div class="shortcuts-section">
             <div class="shortcuts-group-title">Navigation</div>
             <div class="shortcut-row"><kbd>g</kbd><kbd>i</kbd> <span>Go to Inbox</span></div>
-            <div class="shortcut-row"><kbd>g</kbd><kbd>q</kbd> <span>Go to Queue</span></div>
+            <div class="shortcut-row"><kbd>g</kbd><kbd>q</kbd> <span>Go to AI Queue</span></div>
+            <div class="shortcut-row"><kbd>g</kbd><kbd>t</kbd> <span>Go to Tasks</span></div>
             <div class="shortcut-row"><kbd>g</kbd><kbd>h</kbd> <span>Go to History</span></div>
             <div class="shortcut-row"><kbd>g</kbd><kbd>s</kbd> <span>Go to Settings</span></div>
           </div>
@@ -191,6 +192,7 @@
           <div class="shortcuts-section">
             <div class="shortcuts-group-title">Global</div>
             <div class="shortcut-row"><kbd>c</kbd> <span>Compose</span></div>
+            <div class="shortcut-row"><kbd>\</kbd> <span>Toggle AI chat</span></div>
             <div class="shortcut-row"><kbd>?</kbd> <span>This help</span></div>
           </div>
         </div>
@@ -243,9 +245,10 @@
       e.preventDefault();
       switch (key) {
         case 'i': navigate('/inbox'); break;
-        case 'q': navigate('/'); break;
+        case 'q': navigate('/queue'); break;
         case 'h': navigate('/history'); break;
         case 's': navigate('/settings'); break;
+        case 't': navigate('/tasks'); break;
       }
       return;
     }
@@ -255,6 +258,11 @@
       case '?':
         e.preventDefault();
         toggleHelp();
+        break;
+
+      case '\\':
+        e.preventDefault();
+        if (typeof toggleChat === 'function') toggleChat();
         break;
 
       case 'c':

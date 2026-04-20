@@ -1,0 +1,15 @@
+{% if emails %}
+  <div class="home-email-list">
+    {% for email in emails %}
+      <a href="/inbox" class="home-email-row">
+        <div class="home-email-subject">{{ email.get('subject', '(no subject)') }}</div>
+        <div class="home-email-meta">
+          From: {{ email.get('from', {}).get('emailAddress', {}).get('name', 'Unknown') }}
+          · {{ email.get('receivedDateTime', '')[:10] }}
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="home-empty">You're all caught up!</div>
+{% endif %}
