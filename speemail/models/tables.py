@@ -125,3 +125,15 @@ class ChatMessage(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()
     )
+
+
+class IgnoreRule(Base):
+    __tablename__ = "ignore_rules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    rule_type: Mapped[str] = mapped_column(String, nullable=False)
+    # 'sender' | 'subject'
+    pattern: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now()
+    )

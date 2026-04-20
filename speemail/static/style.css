@@ -493,3 +493,12 @@ kbd {
 @media (max-width: 500px) {
   .chat-panel { width: 100%; }
 }
+
+/* ── Ignore rules ────────────────────────────────────────────────────────── */
+.ignore-rule-add-form { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.ignore-rules-table { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.5rem; }
+.ignore-rule-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem 0.6rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); }
+.ignore-rule-type { flex-shrink: 0; }
+.ignore-rule-pattern { flex: 1; font-size: 0.875rem; font-family: monospace; word-break: break-all; }
+.ignore-rule-delete { color: var(--text-muted); padding: 0.1rem 0.4rem; }
+.ignore-rule-delete:hover { color: var(--red); }

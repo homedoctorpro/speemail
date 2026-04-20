@@ -47,7 +47,7 @@ def needs_reply(
     db: Session = Depends(get_db_dep),
     client: GraphClient = Depends(get_graph_dep),
 ):
-    emails = unresponded_service.get_needs_reply(client, limit=10)
+    emails = unresponded_service.get_needs_reply(client, db, limit=10)
     return request.app.state.templates.TemplateResponse(
         "partials/_unresponded_list.html",
         {"request": request, "emails": emails, "section_type": "needs_reply"},

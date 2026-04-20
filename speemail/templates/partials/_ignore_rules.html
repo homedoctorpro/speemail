@@ -1,0 +1,21 @@
+<div id="ignore-rules-list">
+  {% if rules %}
+    <div class="ignore-rules-table">
+      {% for rule in rules %}
+        <div class="ignore-rule-row">
+          <span class="badge {% if rule.rule_type == 'sender' %}badge-blue{% else %}badge-orange{% endif %} ignore-rule-type">
+            {{ rule.rule_type }}
+          </span>
+          <span class="ignore-rule-pattern">{{ rule.pattern }}</span>
+          <button class="btn btn-ghost btn-sm ignore-rule-delete"
+            hx-delete="/api/v1/settings/ignore-rules/{{ rule.id }}"
+            hx-target="#ignore-rules-list"
+            hx-swap="outerHTML"
+            title="Remove rule">✕</button>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="form-hint" style="padding: 0.5rem 0;">No ignore rules yet.</p>
+  {% endif %}
+</div>

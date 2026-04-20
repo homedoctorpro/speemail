@@ -41,6 +41,12 @@
     </div>
 
     <div class="form-group">
+      <label class="form-label">Unresponded scan depth (days)</label>
+      <input type="number" name="unresponded_scan_days" class="form-input" min="1" max="365" />
+      <span class="form-hint">How far back to look for unresponded emails on the home dashboard. Defaults to 90 days on first setup.</span>
+    </div>
+
+    <div class="form-group">
       <label class="form-label">Email signature</label>
       <textarea name="email_signature" class="form-textarea" rows="4"
         placeholder="Appended to all drafted emails…"></textarea>
@@ -53,6 +59,38 @@
   </form>
 </template>
 
+<hr class="divider" style="margin: 1.5rem 0;" />
+
+<!-- Email filters / ignore rules -->
+<div class="card settings-card">
+  <h2 class="page-title" style="font-size: 1.1rem; margin-bottom: 0.25rem;">Email Filters</h2>
+  <p class="page-subtitle" style="margin-bottom: 1.25rem;">Emails matching these rules won't appear in "Needs Your Reply".</p>
+
+  <!-- Add rule form -->
+  <form class="ignore-rule-add-form"
+    hx-post="/api/v1/settings/ignore-rules"
+    hx-target="#ignore-rules-list"
+    hx-swap="outerHTML"
+    hx-on::after-request="this.reset()">
+    <select class="form-select" name="rule_type" style="width: 110px;">
+      <option value="sender">Sender</option>
+      <option value="subject">Subject</option>
+    </select>
+    <input class="form-input" type="text" name="pattern"
+      placeholder="e.g. noreply@example.com or 'unsubscribe'"
+      required style="flex: 1;" />
+    <button class="btn btn-secondary btn-sm" type="submit">Add Rule</button>
+  </form>
+
+  <!-- Rules list (HTMX loaded) -->
+  <div style="margin-top: 1rem;"
+    hx-get="/api/v1/settings/ignore-rules"
+    hx-trigger="load"
+    hx-swap="innerHTML">
+    <div class="loading-state"><span class="spinner"></span> Loading…</div>
+  </div>
+</div>
+
 <script>
   // Render settings form when HTMX loads the JSON
   document.body.addEventListener('htmx:afterRequest', function(e) {
@@ -64,9 +102,9 @@
         const container = document.getElementById('settings-form-container');
         const clone = tpl.content.cloneNode(true);
 
-        // Populate values
         clone.querySelector('[name=follow_up_days]').value = data.follow_up_days || 3;
         clone.querySelector('[name=poll_interval_minutes]').value = data.poll_interval_minutes || 15;
+        clone.querySelector('[name=unresponded_scan_days]').value = data.unresponded_scan_days || 90;
         clone.querySelector('[name=email_signature]').value = data.email_signature || '';
 
         container.innerHTML = '';

@@ -1,5 +1,6 @@
 from speemail.models.tables import (
     ChatMessage,
+    IgnoreRule,
     PollCursor,
     Setting,
     Task,
@@ -7,4 +8,4 @@ from speemail.models.tables import (
     UserMemory,
 )
 
-__all__ = ["TrackedEmail", "PollCursor", "Setting", "Task", "UserMemory", "ChatMessage"]
+__all__ = ["TrackedEmail", "PollCursor", "Setting", "Task", "UserMemory", "ChatMessage", "IgnoreRule"]
