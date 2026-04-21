@@ -166,5 +166,5 @@ python -c "from alembic.config import Config; from alembic import command; comma
 2. Platform: **Web**
 3. Redirect URI: `http://localhost:8765/auth/callback` (add `https://your-domain/auth/callback` for production)
 4. Certificates & Secrets → New client secret → copy into `AZURE_CLIENT_SECRET`
-5. API permissions → Add delegated: `Mail.Read`, `User.Read`, `Calendars.Read`, `offline_access`
+5. API permissions → Add delegated: `Mail.Read`, `User.Read`, `offline_access`
 6. Copy the **Application (client) ID** into `AZURE_CLIENT_ID`
