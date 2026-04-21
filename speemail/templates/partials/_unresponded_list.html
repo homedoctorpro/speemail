@@ -13,7 +13,7 @@
 
       <div class="home-email-row" id="needs-reply-{{ email.id }}">
         <div class="home-email-main">
-          <a href="/inbox" class="home-email-link">
+          <a href="/inbox?open={{ email.id }}" class="home-email-link">
             <div class="home-email-subject">{{ email.get('subject', '(no subject)') }}</div>
             <div class="home-email-meta">
               {{ sender_name or sender_addr }}

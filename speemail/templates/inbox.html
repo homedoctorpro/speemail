@@ -47,4 +47,30 @@
 
 <!-- Compose modal container -->
 <div id="modal-container"></div>
+
+<script>
+  // If ?open=<messageId> is in the URL, open that message once the list loads.
+  (function () {
+    const params = new URLSearchParams(window.location.search);
+    const openId = params.get('open');
+    if (!openId) return;
+
+    document.body.addEventListener('htmx:afterSwap', function handler(e) {
+      if (e.detail.target.id !== 'inbox-message-list') return;
+      document.body.removeEventListener('htmx:afterSwap', handler);
+
+      const row = document.getElementById('row-' + openId);
+      if (row) {
+        row.click();
+      } else {
+        // Message not in current page — load detail directly
+        htmx.ajax('GET', '/api/v1/inbox/messages/' + openId, {
+          target: '#message-detail-pane',
+          swap: 'innerHTML',
+        });
+        document.getElementById('inbox-list-pane').classList.add('detail-open');
+      }
+    });
+  })();
+</script>
 {% endblock %}
