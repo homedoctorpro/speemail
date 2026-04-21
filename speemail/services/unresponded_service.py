@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -20,12 +19,57 @@ _CACHE_TTL = 300  # 5 minutes
 _needs_reply_cache: dict = {"data": [], "ts": 0.0}
 
 
-def _get_scan_days(db: Session) -> int:
-    row = db.query(Setting).filter_by(key="unresponded_scan_days").first()
-    try:
-        return max(1, int(row.value)) if row else 90
-    except (ValueError, TypeError):
-        return 90
+
+_AUTOMATED_SENDER_PATTERNS = (
+    "noreply", "no-reply", "donotreply", "do-not-reply",
+    "notification", "newsletter", "mailer", "postmaster",
+    "bounce", "automated", "receipts@", "billing@",
+    "updates@", "alerts@", "support@stripe", "stripe@",
+    "invoices@", "statements@",
+)
+
+_AUTOMATED_SUBJECT_PATTERNS = (
+    "receipt", "invoice", "order confirmation", "payment confirmation",
+    "your order", "order #", "order number", "e-statement", "statement",
+    "unsubscribe", "newsletter", "digest",
+    "verify your email", "confirm your email", "email verification",
+    "password reset", "reset your password",
+    "verification code", "one-time code", "two-step verification", "2-step",
+    "thanks for signing up", "welcome to ",
+    "account notification", "account update", "security alert",
+    "your subscription", "subscription confirmation", "auto-renewal",
+    "shipment", "your package", "delivery",
+    "you're receiving this", "you are receiving this",
+)
+
+_AUTOMATED_PREVIEW_PATTERNS = (
+    "you're receiving this email because",
+    "you are receiving this email because",
+    "unsubscribe from this",
+    "manage your preferences",
+    "view it in your browser",
+    "this is an automated",
+    "do not reply to this",
+    "partners with stripe",
+)
+
+
+def _is_automated_email(msg: dict) -> bool:
+    """Return True if the email looks like an automated notification that won't need a reply."""
+    sender = msg.get("from", {}).get("emailAddress", {}).get("address", "").lower()
+    subject = (msg.get("subject") or "").lower()
+    preview = (msg.get("bodyPreview") or "").lower()
+
+    for pattern in _AUTOMATED_SENDER_PATTERNS:
+        if pattern in sender:
+            return True
+    for pattern in _AUTOMATED_SUBJECT_PATTERNS:
+        if pattern in subject:
+            return True
+    for pattern in _AUTOMATED_PREVIEW_PATTERNS:
+        if pattern in preview:
+            return True
+    return False
 
 
 def _matches_ignore_rules(msg: dict, rules: list[IgnoreRule]) -> bool:
@@ -44,59 +88,67 @@ def get_needs_reply(client: GraphClient, db: Session, limit: int = 20) -> list[d
     """
     Return inbox messages the user has not replied to.
     Results are cached for 5 minutes; cache is invalidated when rules change.
+    First scan uses full scan_days window; subsequent scans drop to 30 days.
     """
     now = time.monotonic()
     if now - _needs_reply_cache["ts"] < _CACHE_TTL:
         return _needs_reply_cache["data"][:limit]
 
     try:
-        scan_days = _get_scan_days(db)
         ignore_rules = db.query(IgnoreRule).all()
-        result = _fetch_needs_reply(client, scan_days, ignore_rules, limit)
+        result = _fetch_needs_reply(client, ignore_rules, limit)
         _needs_reply_cache["data"] = result
         _needs_reply_cache["ts"] = now
+
         return result
-    except Exception:
-        logger.exception("Failed to fetch unresponded inbox emails")
+    except Exception as exc:
+        logger.error("Failed to fetch unresponded inbox emails: %s", exc, exc_info=True)
         return _needs_reply_cache["data"][:limit]
 
 
 def _fetch_needs_reply(
     client: GraphClient,
-    scan_days: int,
     ignore_rules: list[IgnoreRule],
     limit: int,
 ) -> list[dict]:
-    since = (datetime.utcnow() - timedelta(days=scan_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    sent_since = (datetime.utcnow() - timedelta(days=scan_days + 30)).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    # Fetch recent sent items to build a set of replied-to conversation IDs
+    # Fetch recent sent items: map conversationId → most recent sentDateTime
     sent_data = client.get(
         "/me/mailFolders/SentItems/messages",
         params={
             "$select": "conversationId,sentDateTime",
-            "$filter": f"sentDateTime ge {sent_since}",
-            "$top": "500",
+            "$top": "200",
         },
     )
-    sent_conv_ids: set[str] = {m["conversationId"] for m in sent_data.get("value", [])}
+    sent_conv_dates: dict[str, str] = {}
+    for m in sent_data.get("value", []):
+        conv_id = m.get("conversationId", "")
+        sent_dt = m.get("sentDateTime", "")
+        if conv_id not in sent_conv_dates or sent_dt > sent_conv_dates[conv_id]:
+            sent_conv_dates[conv_id] = sent_dt
 
-    # Paginate inbox messages up to a reasonable cap
-    inbox_cap = min(limit * 10, 500)
+    # Fetch most recent inbox messages
+    inbox_cap = min(limit * 5, 100)
     inbox_data = client.get(
         "/me/mailFolders/Inbox/messages",
         params={
             "$select": "id,subject,from,receivedDateTime,bodyPreview,conversationId,isRead",
-            "$filter": f"receivedDateTime ge {since}",
             "$top": str(inbox_cap),
-            "$orderby": "receivedDateTime desc",
         },
     )
 
+    logger.info("Sent items fetched: %d unique conv IDs", len(sent_conv_dates))
+    inbox_msgs = inbox_data.get("value", [])
+    logger.info("Inbox messages fetched: %d", len(inbox_msgs))
+
     unresponded = []
-    for msg in inbox_data.get("value", []):
+    for msg in inbox_msgs:
         conv_id = msg.get("conversationId", "")
-        if conv_id in sent_conv_ids:
+        received_dt = msg.get("receivedDateTime", "")
+        last_sent = sent_conv_dates.get(conv_id)
+        if last_sent and last_sent > received_dt:
+            continue
+        if _is_automated_email(msg):
+            logger.debug("Skipping automated email: %s", msg.get("subject"))
             continue
         if _matches_ignore_rules(msg, ignore_rules):
             continue
@@ -104,6 +156,7 @@ def _fetch_needs_reply(
         if len(unresponded) >= limit:
             break
 
+    logger.info("Unresponded found: %d", len(unresponded))
     return unresponded
 
 
