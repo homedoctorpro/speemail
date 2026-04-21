@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(python -m pip install -e \".[dev]\" --quiet)",
-      "Bash(python -m alembic upgrade head)"
+      "Bash(python -m alembic upgrade head)",
+      "Bash(where git *)",
+      "Bash(export PATH=\"/mingw64/bin:/usr/bin:/c/Program Files/Git/bin:/c/Program Files/Git/cmd:$PATH\")"
     ]
   }
 }

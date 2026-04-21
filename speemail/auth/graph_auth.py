@@ -46,6 +46,7 @@ def _build_app(cache: msal.SerializableTokenCache) -> msal.ConfidentialClientApp
         client_credential=settings.azure_client_secret,
         authority=f"https://login.microsoftonline.com/{settings.azure_tenant_id}",
         token_cache=cache,
+        validate_authority=False,
     )
 
 

@@ -76,9 +76,11 @@ def create_app() -> FastAPI:
 def _register_template_filters(templates: Jinja2Templates) -> None:
     from datetime import datetime
 
-    def timeago(dt: datetime | None) -> str:
+    def timeago(dt: datetime | str | None) -> str:
         if dt is None:
             return "never"
+        if isinstance(dt, str):
+            dt = datetime.fromisoformat(dt.replace("Z", "+00:00")).replace(tzinfo=None)
         now = datetime.utcnow()
         diff = now - dt
         days = diff.days

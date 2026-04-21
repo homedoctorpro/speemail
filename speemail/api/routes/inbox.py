@@ -36,11 +36,11 @@ def list_messages(
     request: Request,
     folder: str = Query("Inbox"),
     top: int = Query(30),
-    skip: int = Query(0),
+    next_link: str = Query(""),
     client: GraphClient = Depends(get_graph_dep),
 ):
     try:
-        data = inbox_service.get_messages_page(client, folder=folder, top=top, skip=skip)
+        data = inbox_service.get_messages_page(client, folder=folder, top=top, next_link=next_link)
     except Exception as exc:
         logger.error("Failed to fetch messages: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc))

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from speemail.auth.graph_auth import GraphClient
 from speemail.models.tables import IgnoreRule, Setting, TrackedEmail
+from speemail.services import classification_service
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ def get_needs_reply(client: GraphClient, db: Session, limit: int = 20) -> list[d
 
     try:
         ignore_rules = db.query(IgnoreRule).all()
-        result = _fetch_needs_reply(client, ignore_rules, limit)
+        result = _fetch_needs_reply(client, db, ignore_rules, limit)
         _needs_reply_cache["data"] = result
         _needs_reply_cache["ts"] = now
 
@@ -108,6 +109,7 @@ def get_needs_reply(client: GraphClient, db: Session, limit: int = 20) -> list[d
 
 def _fetch_needs_reply(
     client: GraphClient,
+    db: Session,
     ignore_rules: list[IgnoreRule],
     limit: int,
 ) -> list[dict]:
@@ -147,11 +149,25 @@ def _fetch_needs_reply(
         last_sent = sent_conv_dates.get(conv_id)
         if last_sent and last_sent > received_dt:
             continue
+        if _matches_ignore_rules(msg, ignore_rules):
+            continue
+
+        # Fast heuristic: obvious automated emails skip Claude entirely
         if _is_automated_email(msg):
             logger.debug("Skipping automated email: %s", msg.get("subject"))
             continue
-        if _matches_ignore_rules(msg, ignore_rules):
+
+        # AI classification (cached in DB after first call)
+        clf = classification_service.classify(msg, db)
+        if not clf["needs_reply"] and clf["confidence"] >= 0.75:
+            logger.debug(
+                "Skipping (AI %.0f%% confident no reply needed): %s",
+                clf["confidence"] * 100,
+                msg.get("subject"),
+            )
             continue
+
+        msg["_classification"] = clf
         unresponded.append(msg)
         if len(unresponded) >= limit:
             break

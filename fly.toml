@@ -12,7 +12,7 @@ primary_region = "lax"  # nearest Fly region: lax, iad, lhr, fra, syd, etc.
 
 # Keep one machine always running (needed for APScheduler background jobs)
 [[vm]]
-  memory = "256mb"
+  memory = "1024mb"
   cpu_kind = "shared"
   cpus = 1
 

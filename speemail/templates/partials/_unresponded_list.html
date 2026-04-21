@@ -1,15 +1,72 @@
 {% if emails %}
   <div class="home-email-list">
     {% for email in emails %}
-      <a href="/inbox" class="home-email-row">
-        <div class="home-email-subject">{{ email.get('subject', '(no subject)') }}</div>
-        <div class="home-email-meta">
-          From: {{ email.get('from', {}).get('emailAddress', {}).get('name', 'Unknown') }}
-          · {{ email.get('receivedDateTime', '')[:10] }}
+      {% set ea = email.get('from', {}).get('emailAddress', {}) %}
+      {% set sender_name = ea.get('name', '') %}
+      {% set sender_addr = ea.get('address', '') %}
+      {% set clf = email.get('_classification', {}) %}
+      {% set confidence = clf.get('confidence', 0.5) %}
+      {% set pct = (confidence * 100) | int %}
+      {% if confidence >= 0.8 %}{% set conf_class = "conf-high" %}
+      {% elif confidence >= 0.6 %}{% set conf_class = "conf-medium" %}
+      {% else %}{% set conf_class = "conf-low" %}{% endif %}
+
+      <div class="home-email-row" id="needs-reply-{{ email.id }}">
+        <div class="home-email-main">
+          <a href="/inbox" class="home-email-link">
+            <div class="home-email-subject">{{ email.get('subject', '(no subject)') }}</div>
+            <div class="home-email-meta">
+              {{ sender_name or sender_addr }}
+              · {{ email.get('receivedDateTime', '')[:10] }}
+            </div>
+            {% if clf.get('reasoning') %}
+              <div class="home-email-reasoning">{{ clf.reasoning }}</div>
+            {% endif %}
+          </a>
         </div>
-      </a>
+        <div class="home-email-actions">
+          <span class="conf-badge {{ conf_class }}" title="{{ clf.get('reasoning', '') }}">{{ pct }}%</span>
+          <button class="row-action-btn needs-reply-confirm-btn"
+            title="Confirm: yes, I need to reply"
+            hx-post="/api/v1/needs-reply/{{ email.id }}/feedback"
+            hx-target="#toast-container"
+            hx-swap="beforeend"
+            hx-vals='{"decision": "needs_reply", "subject": {{ email.get('subject','') | tojson }}, "sender_address": {{ sender_addr | tojson }}, "sender_name": {{ sender_name | tojson }}, "body_preview": {{ email.get('bodyPreview','') | tojson }}}'
+            hx-on::after-request="document.getElementById('needs-reply-{{ email.id }}').remove()">
+            ✓
+          </button>
+          <button class="row-action-btn needs-reply-skip-btn"
+            title="Skip: I don't need to reply"
+            onclick="toggleSkipForm('{{ email.id }}')">
+            ✕
+          </button>
+        </div>
+        <div class="skip-form" id="skip-form-{{ email.id }}" style="display:none">
+          <form hx-post="/api/v1/needs-reply/{{ email.id }}/feedback"
+                hx-target="#toast-container"
+                hx-swap="beforeend"
+                hx-on::after-request="document.getElementById('needs-reply-{{ email.id }}').remove()">
+            <input type="hidden" name="decision" value="skip">
+            <input type="hidden" name="subject" value="{{ email.get('subject', '') }}">
+            <input type="hidden" name="sender_address" value="{{ sender_addr }}">
+            <input type="hidden" name="sender_name" value="{{ sender_name }}">
+            <input type="hidden" name="body_preview" value="{{ email.get('bodyPreview', '')[:300] }}">
+            <input class="skip-reason-input" type="text" name="reason"
+                   placeholder="Reason (optional, helps AI learn)">
+            <button class="btn btn-sm btn-secondary" type="submit">Skip</button>
+            <button class="btn btn-sm" type="button"
+                    onclick="toggleSkipForm('{{ email.id }}')">Cancel</button>
+          </form>
+        </div>
+      </div>
     {% endfor %}
   </div>
+  <script>
+    function toggleSkipForm(id) {
+      var f = document.getElementById('skip-form-' + id);
+      f.style.display = f.style.display === 'none' ? 'block' : 'none';
+    }
+  </script>
 {% else %}
   <div class="home-empty">You're all caught up!</div>
 {% endif %}

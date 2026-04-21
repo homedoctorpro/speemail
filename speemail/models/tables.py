@@ -137,3 +137,33 @@ class IgnoreRule(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()
     )
+
+
+class EmailClassification(Base):
+    """Cached AI verdict for a specific inbox message."""
+    __tablename__ = "email_classifications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    graph_message_id: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    needs_reply: Mapped[bool] = mapped_column(nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    reasoning: Mapped[str] = mapped_column(Text, nullable=False)
+    classified_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+
+class EmailFeedback(Base):
+    """User correction on whether an email needs a reply."""
+    __tablename__ = "email_feedback"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    graph_message_id: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    subject: Mapped[str] = mapped_column(String, nullable=False)
+    sender_address: Mapped[str] = mapped_column(String, nullable=False)
+    sender_name: Mapped[str] = mapped_column(String, nullable=False, default="")
+    body_preview: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    decision: Mapped[str] = mapped_column(String, nullable=False)
+    # 'needs_reply' | 'skip'
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now()
+    )

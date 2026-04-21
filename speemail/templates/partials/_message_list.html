@@ -34,11 +34,11 @@
   {% endfor %}
 
   {% if has_more %}
-    <div class="load-more-wrap">
+    <div class="load-more-wrap" id="load-more-wrap">
       <button class="btn btn-secondary btn-sm"
-        hx-get="/api/v1/inbox/messages?skip={{ skip + top }}"
-        hx-target="#inbox-message-list"
-        hx-swap="beforeend"
+        hx-get="/api/v1/inbox/messages?next_link={{ next_link }}"
+        hx-target="#load-more-wrap"
+        hx-swap="outerHTML"
         hx-on::before-request="this.textContent='Loading…'"
         >Load more</button>
     </div>
