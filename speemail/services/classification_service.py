@@ -37,11 +37,13 @@ Return ONLY valid JSON in this exact format (no prose, no markdown fences):
 
 Confidence is 0.0–1.0. Reserve scores above 0.85 for cases where you are very certain.
 
-Addressing is the strongest signal — weight it heavily:
-- Email sent directly to the recipient alone → very strong signal, start confidence high
+Addressing is an important signal but not definitive — always weigh it against content:
+- Email sent directly to the recipient alone → strong signal they need to reply
 - Email sent to the recipient and a few others → moderate signal
 - Recipient is CC'd only → usually FYI, lower confidence they need to reply
-- Recipient is not in To or CC → very unlikely to need their personal reply
+- Recipient is not in To or CC → could be a distribution list, BCC, or alias —
+  if the body clearly addresses them personally, treat it as a direct email;
+  if it looks like a broadcast, lower confidence
 - Addressing unknown → use content signals only
 
 Emails that do NOT need a reply regardless of addressing:
@@ -88,8 +90,8 @@ def _addressing_label(msg: dict, user_email: str | None) -> str:
             return f"you are CC'd; email is addressed to {', '.join(to_addrs)}"
         return "you are CC'd only"
     if not to_addrs and not cc_addrs:
-        return "no recipient information available"
-    return "you are not in To or CC"
+        return "no recipients listed (possible BCC, distribution list, or alias)"
+    return f"you are not in To or CC (To: {', '.join(to_addrs) or 'empty'})"
 
 
 def _parse(text: str) -> dict:
