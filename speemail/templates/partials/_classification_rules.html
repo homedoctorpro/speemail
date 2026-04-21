@@ -1,0 +1,32 @@
+<div id="classification-rules-panel">
+  <div class="rules-header">
+    <span class="rules-meta">
+      {{ feedback_count }} feedback decision{{ 's' if feedback_count != 1 else '' }} recorded
+      {% if feedback_count < derive_threshold %}
+        · {{ derive_threshold - feedback_count }} more needed to auto-derive rules
+      {% endif %}
+    </span>
+    {% if feedback_count >= 5 %}
+      <button class="btn btn-sm btn-secondary"
+        hx-post="/api/v1/settings/classification-rules/derive"
+        hx-target="#classification-rules-panel"
+        hx-swap="outerHTML"
+        hx-on::before-request="this.textContent='Deriving…'; this.disabled=true">
+        Re-derive rules now
+      </button>
+    {% endif %}
+  </div>
+
+  {% if rules %}
+    <pre class="rules-body">{{ rules }}</pre>
+  {% else %}
+    <p class="rules-empty">
+      No rules derived yet.
+      {% if feedback_count >= 5 %}
+        Click "Re-derive rules now" to generate them from your {{ feedback_count }} decisions.
+      {% else %}
+        Use the ✓ / ✕ buttons on the dashboard to give feedback on emails — rules will be derived automatically after {{ derive_threshold }} decisions.
+      {% endif %}
+    </p>
+  {% endif %}
+</div>

@@ -61,6 +61,22 @@
 
 <hr class="divider" style="margin: 1.5rem 0;" />
 
+<!-- AI classification rules -->
+<div class="card settings-card">
+  <h2 class="page-title" style="font-size: 1.1rem; margin-bottom: 0.25rem;">AI Learning Rules</h2>
+  <p class="page-subtitle" style="margin-bottom: 1.25rem;">
+    Rules Claude has derived from your ✓/✕ feedback. These replace raw examples so the AI
+    keeps improving beyond the few-shot ceiling.
+  </p>
+  <div hx-get="/api/v1/settings/classification-rules"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <div class="loading-state"><span class="spinner"></span> Loading…</div>
+  </div>
+</div>
+
+<hr class="divider" style="margin: 1.5rem 0;" />
+
 <!-- Email filters / ignore rules -->
 <div class="card settings-card">
   <h2 class="page-title" style="font-size: 1.1rem; margin-bottom: 0.25rem;">Email Filters</h2>

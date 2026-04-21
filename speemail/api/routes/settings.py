@@ -6,8 +6,8 @@ from sqlalchemy.orm import Session
 
 from speemail import scheduler as sched
 from speemail.api.deps import get_db_dep
-from speemail.models.tables import IgnoreRule, Setting
-from speemail.services import unresponded_service
+from speemail.models.tables import EmailFeedback, IgnoreRule, Setting
+from speemail.services import classification_service, unresponded_service
 
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
 
@@ -61,6 +61,38 @@ def update_settings(
         _upsert(db, k, v)
 
     return {"ok": True, "updated": list(updates.keys())}
+
+
+# ── Classification rules ─────────────────────────────────────────────────────
+
+@router.get("/classification-rules", response_class=HTMLResponse)
+def get_classification_rules(request: Request, db: Session = Depends(get_db_dep)):
+    rules_row = db.query(Setting).filter_by(key=classification_service.RULES_SETTING_KEY).first()
+    feedback_count = db.query(EmailFeedback).count()
+    return request.app.state.templates.TemplateResponse(
+        "partials/_classification_rules.html",
+        {
+            "request": request,
+            "rules": rules_row.value if rules_row else None,
+            "feedback_count": feedback_count,
+            "derive_threshold": classification_service.DERIVE_AFTER_N_FEEDBACKS,
+        },
+    )
+
+
+@router.post("/classification-rules/derive", response_class=HTMLResponse)
+def force_derive_rules(request: Request, db: Session = Depends(get_db_dep)):
+    rules = classification_service.derive_rules(db)
+    feedback_count = db.query(EmailFeedback).count()
+    return request.app.state.templates.TemplateResponse(
+        "partials/_classification_rules.html",
+        {
+            "request": request,
+            "rules": rules,
+            "feedback_count": feedback_count,
+            "derive_threshold": classification_service.DERIVE_AFTER_N_FEEDBACKS,
+        },
+    )
 
 
 # ── Ignore rules ──────────────────────────────────────────────────────────────
