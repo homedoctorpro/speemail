@@ -133,7 +133,7 @@ def _fetch_needs_reply(
     inbox_data = client.get(
         "/me/mailFolders/Inbox/messages",
         params={
-            "$select": "id,subject,from,receivedDateTime,bodyPreview,conversationId,isRead",
+            "$select": "id,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,conversationId,isRead",
             "$top": str(inbox_cap),
         },
     )

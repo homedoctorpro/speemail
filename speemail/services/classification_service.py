@@ -37,7 +37,14 @@ Return ONLY valid JSON in this exact format (no prose, no markdown fences):
 
 Confidence is 0.0–1.0. Reserve scores above 0.85 for cases where you are very certain.
 
-Emails that do NOT need a reply:
+Addressing is the strongest signal — weight it heavily:
+- Email sent directly to the recipient alone → very strong signal, start confidence high
+- Email sent to the recipient and a few others → moderate signal
+- Recipient is CC'd only → usually FYI, lower confidence they need to reply
+- Recipient is not in To or CC → very unlikely to need their personal reply
+- Addressing unknown → use content signals only
+
+Emails that do NOT need a reply regardless of addressing:
 - Automated receipts, invoices, order confirmations, payment notifications
 - Shipping and delivery updates
 - Password resets, verification codes, two-factor authentication codes
@@ -46,7 +53,7 @@ Emails that do NOT need a reply:
 - Emails from addresses containing noreply, no-reply, donotreply, notifications, mailer
 - Emails where the body says "you are receiving this because" or "do not reply"
 
-Emails that DO need a reply:
+Emails that DO need a reply (when addressed to the recipient):
 - Personal emails from real people asking a direct question
 - Meeting requests or scheduling emails requiring a response
 - Emails from colleagues, clients, or partners expecting an answer
@@ -61,6 +68,30 @@ obvious defaults like "receipts don't need replies". Include both what needs a r
 and what to skip. If the user gave reasons, use them to make rules more precise."""
 
 
+def _addressing_label(msg: dict, user_email: str | None) -> str:
+    """Describe how the email is addressed relative to the user."""
+    if not user_email:
+        return "unknown (user email not configured)"
+
+    ue = user_email.lower()
+    to_addrs = [r.get("emailAddress", {}).get("address", "").lower()
+                for r in msg.get("toRecipients", [])]
+    cc_addrs = [r.get("emailAddress", {}).get("address", "").lower()
+                for r in msg.get("ccRecipients", [])]
+
+    if ue in to_addrs:
+        if len(to_addrs) == 1:
+            return "sent directly to you and only you"
+        return f"sent to you and {len(to_addrs) - 1} other(s)"
+    if ue in cc_addrs:
+        if to_addrs:
+            return f"you are CC'd; email is addressed to {', '.join(to_addrs)}"
+        return "you are CC'd only"
+    if not to_addrs and not cc_addrs:
+        return "no recipient information available"
+    return "you are not in To or CC"
+
+
 def _parse(text: str) -> dict:
     text = re.sub(r"^```(?:json)?\s*", "", text.strip(), flags=re.MULTILINE)
     text = re.sub(r"\s*```$", "", text.strip(), flags=re.MULTILINE)
@@ -73,7 +104,7 @@ def _format_feedback(f: EmailFeedback) -> str:
     return f"[{label}{reason}] From: {f.sender_name} <{f.sender_address}> | Subject: {f.subject}"
 
 
-def _build_classify_prompt(msg: dict, feedback: list[EmailFeedback], rules: str | None) -> str:
+def _build_classify_prompt(msg: dict, feedback: list[EmailFeedback], rules: str | None, user_email: str | None) -> str:
     parts: list[str] = []
 
     if rules:
@@ -94,6 +125,7 @@ def _build_classify_prompt(msg: dict, feedback: list[EmailFeedback], rules: str 
     ea = msg.get("from", {}).get("emailAddress", {})
     parts.append("Email to classify:")
     parts.append(f"From: {ea.get('name', '')} <{ea.get('address', '')}>")
+    parts.append(f"Addressing: {_addressing_label(msg, user_email)}")
     parts.append(f"Subject: {msg.get('subject', '(no subject)')}")
     parts.append(f"Preview: {(msg.get('bodyPreview') or '')[:600]}")
     return "\n".join(parts)
@@ -134,6 +166,9 @@ def classify(msg: dict, db: Session) -> dict:
     rules_row = db.query(Setting).filter_by(key=RULES_SETTING_KEY).first()
     rules = rules_row.value if rules_row else None
 
+    user_email_row = db.query(Setting).filter_by(key="user_email").first()
+    user_email = user_email_row.value if user_email_row else None
+
     # Fewer raw examples needed once rules exist
     example_limit = 5 if rules else 30
     feedback = (
@@ -149,7 +184,7 @@ def classify(msg: dict, db: Session) -> dict:
             model="claude-sonnet-4-6",
             max_tokens=256,
             system=_CLASSIFY_SYSTEM,
-            messages=[{"role": "user", "content": _build_classify_prompt(msg, feedback, rules)}],
+            messages=[{"role": "user", "content": _build_classify_prompt(msg, feedback, rules, user_email)}],
         )
         result = _parse(response.content[0].text)
         needs_reply = bool(result.get("needs_reply", False))

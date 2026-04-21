@@ -4,8 +4,9 @@ import logging
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy.orm import Session
 
-from speemail.api.deps import get_graph_dep
+from speemail.api.deps import get_db_dep, get_graph_dep
 from speemail.auth.graph_auth import (
     AuthError,
     GraphClient,
@@ -13,6 +14,8 @@ from speemail.auth.graph_auth import (
     handle_auth_callback,
     start_auth_flow,
 )
+from speemail.models.tables import Setting
+from speemail.services.user_identity import save_user_identity
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
@@ -57,7 +60,7 @@ def login(request: Request):
 
 
 @router.get("/callback")
-def callback(request: Request):
+def callback(request: Request, db: Session = Depends(get_db_dep)):
     """Microsoft redirects here after the user signs in."""
     try:
         handle_auth_callback(dict(request.query_params))
@@ -66,6 +69,15 @@ def callback(request: Request):
         return request.app.state.templates.TemplateResponse(
             "auth_error.html", {"request": request, "error": str(exc)}
         )
+
+    # Persist the user's identity so classification can use it immediately
+    try:
+        from speemail.auth.graph_auth import get_graph_client
+        me = get_graph_client().get_me()
+        save_user_identity(db, me)
+    except Exception as exc:
+        logger.warning("Could not save user identity after login: %s", exc)
+
     return RedirectResponse("/", status_code=302)
 
 

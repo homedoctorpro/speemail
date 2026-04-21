@@ -14,6 +14,7 @@ from speemail.config import settings
 from speemail.models.database import get_session
 from speemail.models.tables import Setting
 from speemail.services import ai_engine, email_poller
+from speemail.services.user_identity import save_user_identity
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,8 @@ def poll_emails_job() -> None:
         return
 
     with get_session() as db:
+        save_user_identity(db, me)
+
         # 1. Find sent emails needing follow-up
         follow_ups = email_poller.poll_follow_ups(client, db)
         db.flush()  # get IDs without committing
