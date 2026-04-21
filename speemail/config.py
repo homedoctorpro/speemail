@@ -47,6 +47,7 @@ class Settings(BaseSettings):
         return [
             "Mail.Read",
             "User.Read",
+            "Calendars.Read",
         ]
 
 
