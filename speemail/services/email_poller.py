@@ -103,7 +103,7 @@ def poll_follow_ups(client: GraphClient, db: Session) -> list[TrackedEmail]:
     logger.info("Polling sent items for follow-ups (sent before %s)", cutoff_str)
 
     try:
-        messages = client.get_paginated(
+        data = client.get(
             "/me/mailFolders/SentItems/messages",
             params={
                 "$filter": f"sentDateTime le {cutoff_str}",
@@ -111,10 +111,11 @@ def poll_follow_ups(client: GraphClient, db: Session) -> list[TrackedEmail]:
                     "id,subject,conversationId,sentDateTime,"
                     "toRecipients,bodyPreview,body"
                 ),
-                "$top": "50",
+                "$top": "20",
                 "$orderby": "sentDateTime desc",
             },
         )
+        messages = data.get("value", [])
     except Exception as exc:
         logger.error("Failed to fetch sent items: %s", exc)
         return []
@@ -149,6 +150,8 @@ def poll_follow_ups(client: GraphClient, db: Session) -> list[TrackedEmail]:
         db.add(row)
         new_rows.append(row)
         logger.info("Flagged for follow-up: %s", row.original_subject)
+        if len(new_rows) >= 5:
+            break
 
     return new_rows
 
@@ -166,7 +169,7 @@ def poll_quick_replies(client: GraphClient, db: Session) -> list[TrackedEmail]:
     logger.info("Polling inbox for quick replies (since %s)", since_str)
 
     try:
-        messages = client.get_paginated(
+        data = client.get(
             "/me/mailFolders/Inbox/messages",
             params={
                 "$filter": (
@@ -176,10 +179,10 @@ def poll_quick_replies(client: GraphClient, db: Session) -> list[TrackedEmail]:
                     "id,subject,conversationId,from,receivedDateTime,"
                     "bodyPreview,body"
                 ),
-                "$top": "25",
-                "$orderby": "receivedDateTime desc",
+                "$top": "10",
             },
         )
+        messages = data.get("value", [])
     except Exception as exc:
         logger.error("Failed to fetch inbox: %s", exc)
         return []
@@ -213,6 +216,8 @@ def poll_quick_replies(client: GraphClient, db: Session) -> list[TrackedEmail]:
         db.add(row)
         new_rows.append(row)
         logger.info("Inbox email queued for AI review: %s", row.original_subject)
+        if len(new_rows) >= 5:
+            break
 
     _set_cursor(db, cursor_name, now)
     return new_rows

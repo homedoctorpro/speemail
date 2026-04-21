@@ -5,7 +5,7 @@ Runs in a daemon thread alongside the FastAPI server.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -82,7 +82,7 @@ def start_scheduler() -> None:
         minutes=interval,
         id="email_poll",
         replace_existing=True,
-        next_run_time=datetime.utcnow(),  # run immediately on startup
+        next_run_time=datetime.utcnow() + timedelta(minutes=3),  # delay startup run
     )
     _scheduler.start()
 
