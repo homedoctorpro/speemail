@@ -18,6 +18,7 @@ from speemail.api.routes import (
     scheduler_routes,
     settings,
     tasks,
+    watched_threads,
 )
 from speemail.middleware.auth_middleware import PasswordAuthMiddleware
 from speemail.models.database import init_db
@@ -69,6 +70,7 @@ def create_app() -> FastAPI:
     app.include_router(scheduler_routes.router)
     app.include_router(tasks.router)
     app.include_router(chat.router)
+    app.include_router(watched_threads.router)
 
     return app
 
@@ -112,9 +114,12 @@ def _register_template_filters(templates: Jinja2Templates) -> None:
             return 0
         return int(score * 100)
 
+    from urllib.parse import quote
+
     templates.env.filters["timeago"] = timeago
     templates.env.filters["confidence_color"] = confidence_color
     templates.env.filters["confidence_pct"] = confidence_pct
+    templates.env.filters["urlencode_value"] = lambda v: quote(str(v), safe="")
 
 
 app = create_app()

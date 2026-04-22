@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from speemail import scheduler as sched
@@ -16,6 +16,8 @@ ALLOWED_KEYS = {
     "poll_interval_minutes",
     "email_signature",
     "unresponded_scan_days",
+    "needs_reply_min_confidence",
+    "watched_thread_alert_hours",
 }
 
 
@@ -43,6 +45,8 @@ def update_settings(
     poll_interval_minutes: int = Form(None),
     email_signature: str = Form(None),
     unresponded_scan_days: int = Form(None),
+    needs_reply_min_confidence: int = Form(None),
+    watched_thread_alert_hours: int = Form(None),
     db: Session = Depends(get_db_dep),
 ):
     updates: dict[str, str] = {}
@@ -56,6 +60,12 @@ def update_settings(
     if unresponded_scan_days is not None:
         updates["unresponded_scan_days"] = str(max(1, unresponded_scan_days))
         unresponded_service.invalidate_cache()
+    if needs_reply_min_confidence is not None:
+        clamped = max(0, min(100, needs_reply_min_confidence))
+        updates["needs_reply_min_confidence"] = str(clamped)
+        unresponded_service.invalidate_cache()
+    if watched_thread_alert_hours is not None:
+        updates["watched_thread_alert_hours"] = str(max(1, watched_thread_alert_hours))
 
     for k, v in updates.items():
         _upsert(db, k, v)

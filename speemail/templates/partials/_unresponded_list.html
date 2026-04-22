@@ -5,6 +5,7 @@
       {% set sender_name = ea.get('name', '') %}
       {% set sender_addr = ea.get('address', '') %}
       {% set clf = email.get('_classification', {}) %}
+      {% set thread_activity = email.get('_thread_activity') %}
       {% set confidence = clf.get('confidence', 0.5) %}
       {% set pct = (confidence * 100) | int %}
       {% if confidence >= 0.8 %}{% set conf_class = "conf-high" %}
@@ -13,12 +14,17 @@
 
       <div class="home-email-row" id="needs-reply-{{ email.id }}">
         <div class="home-email-main">
-          <a href="/inbox?open={{ email.id }}" class="home-email-link">
+          <a href="/inbox?open={{ email.id | urlencode_value }}" class="home-email-link">
             <div class="home-email-subject">{{ email.get('subject', '(no subject)') }}</div>
             <div class="home-email-meta">
               {{ sender_name or sender_addr }}
               · {{ email.get('receivedDateTime', '')[:10] }}
             </div>
+            {% if thread_activity %}
+              <div class="thread-activity-badge" title="Others have replied to this thread — they may have covered it">
+                💬 {{ thread_activity.latest_sender }} also replied
+              </div>
+            {% endif %}
             {% if clf.get('reasoning') %}
               <div class="home-email-reasoning">{{ clf.reasoning }}</div>
             {% endif %}
@@ -39,6 +45,15 @@
             title="Skip: I don't need to reply"
             onclick="toggleSkipForm('{{ email.id }}')">
             ✕
+          </button>
+          <button class="row-action-btn needs-reply-resolved-btn"
+            title="Resolved another way (called, someone else handled it, etc.)"
+            hx-post="/api/v1/needs-reply/{{ email.id }}/feedback"
+            hx-target="#toast-container"
+            hx-swap="beforeend"
+            hx-vals='{"decision": "resolved", "subject": {{ email.get('subject','') | tojson }}, "sender_address": {{ sender_addr | tojson }}, "sender_name": {{ sender_name | tojson }}, "body_preview": {{ email.get('bodyPreview','') | tojson }}}'
+            hx-on::after-request="document.getElementById('needs-reply-{{ email.id }}').remove()">
+            ✓ Done
           </button>
         </div>
         <div class="skip-form" id="skip-form-{{ email.id }}" style="display:none">

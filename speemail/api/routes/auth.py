@@ -14,7 +14,6 @@ from speemail.auth.graph_auth import (
     handle_auth_callback,
     start_auth_flow,
 )
-from speemail.models.tables import Setting
 from speemail.services.user_identity import save_user_identity
 
 router = APIRouter(prefix="/auth", tags=["auth"])

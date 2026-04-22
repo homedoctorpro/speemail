@@ -29,6 +29,10 @@ logger = logging.getLogger(__name__)
 RULES_SETTING_KEY = "classification_rules"
 DERIVE_AFTER_N_FEEDBACKS = 10  # re-derive rules every N feedbacks
 
+# Sender-pattern thresholds
+_PATTERN_MIN_SAMPLES = 3     # minimum feedback entries to start using the signal
+_PATTERN_STRONG_SAMPLES = 5  # at this count + 0 replies → bypass Claude entirely
+
 _CLASSIFY_SYSTEM = """\
 You classify whether a received email requires the recipient to personally write a reply.
 
@@ -36,6 +40,8 @@ Return ONLY valid JSON in this exact format (no prose, no markdown fences):
 {"needs_reply": true, "confidence": 0.85, "reasoning": "one sentence explanation"}
 
 Confidence is 0.0–1.0. Reserve scores above 0.85 for cases where you are very certain.
+
+If "Recipient name" is provided, use it to check salutations: if the email opens with "Hi [OtherName]" and that name does not match the recipient, treat it as likely intended for someone else (lower needs_reply confidence).
 
 Addressing is an important signal but not definitive — always weigh it against content:
 - Email sent directly to the recipient alone → strong signal they need to reply
@@ -94,6 +100,51 @@ def _addressing_label(msg: dict, user_email: str | None) -> str:
     return f"you are not in To or CC (To: {', '.join(to_addrs) or 'empty'})"
 
 
+_GENERIC_SALUTATIONS = {
+    "all", "there", "team", "everyone", "folks", "guys", "friends",
+    "sir", "madam", "whom", "it",
+}
+
+
+def _salutation_mismatch(body_preview: str, user_first_name: str) -> str | None:
+    """
+    If the email opens with 'Hi [Name]' and Name is not the user, return the greeted name.
+    Returns None if there is no mismatch or not enough info to decide.
+    """
+    if not user_first_name or not body_preview:
+        return None
+    m = re.match(r"^(hi|hello|dear|hey),?\s+([a-z]+)", body_preview.strip(), re.IGNORECASE)
+    if not m:
+        return None
+    greeted = m.group(2).lower()
+    if greeted in _GENERIC_SALUTATIONS:
+        return None
+    if greeted == user_first_name.lower():
+        return None
+    return m.group(2)  # return original capitalisation for readable reasoning
+
+
+def _get_sender_history(sender_address: str, db: Session) -> dict | None:
+    """
+    Returns reply/skip counts for a sender based on explicit user feedback.
+    Returns None if there isn't enough history to draw conclusions.
+    """
+    if not sender_address:
+        return None
+    rows = (
+        db.query(EmailFeedback)
+        .filter(EmailFeedback.sender_address == sender_address.lower())
+        .all()
+    )
+    if len(rows) < _PATTERN_MIN_SAMPLES:
+        return None
+    total = len(rows)
+    replied = sum(1 for r in rows if r.decision == "needs_reply")
+    skipped = total - replied
+    return {"total": total, "replied": replied, "skipped": skipped,
+            "skip_rate": skipped / total}
+
+
 def _parse(text: str) -> dict:
     text = re.sub(r"^```(?:json)?\s*", "", text.strip(), flags=re.MULTILINE)
     text = re.sub(r"\s*```$", "", text.strip(), flags=re.MULTILINE)
@@ -106,7 +157,14 @@ def _format_feedback(f: EmailFeedback) -> str:
     return f"[{label}{reason}] From: {f.sender_name} <{f.sender_address}> | Subject: {f.subject}"
 
 
-def _build_classify_prompt(msg: dict, feedback: list[EmailFeedback], rules: str | None, user_email: str | None) -> str:
+def _build_classify_prompt(
+    msg: dict,
+    feedback: list[EmailFeedback],
+    rules: str | None,
+    user_email: str | None,
+    sender_history: dict | None,
+    user_name: str | None = None,
+) -> str:
     parts: list[str] = []
 
     if rules:
@@ -116,16 +174,38 @@ def _build_classify_prompt(msg: dict, feedback: list[EmailFeedback], rules: str 
         if feedback:
             parts.append("Recent examples:")
             for f in feedback[:5]:
-                parts.append(_format_feedback(f))
+                if f.decision != "resolved":
+                    parts.append(_format_feedback(f))
             parts.append("")
     elif feedback:
         parts.append("Examples of past decisions by this user:")
         for f in feedback:
-            parts.append(_format_feedback(f))
+            if f.decision != "resolved":
+                parts.append(_format_feedback(f))
+        parts.append("")
+
+    if sender_history:
+        h = sender_history
+        parts.append(
+            f"Sender pattern: {h['total']} previous emails from this sender address in history. "
+            f"User replied to {h['replied']}, skipped {h['skipped']} "
+            f"({int(h['skip_rate'] * 100)}% skip rate)."
+        )
+        if h["replied"] == 0:
+            parts.append(
+                "The user has NEVER replied to this sender — treat this as a strong signal "
+                "that emails from this address are transactional/bulk and do not need a reply."
+            )
+        elif h["skip_rate"] >= 0.7:
+            parts.append(
+                "The user rarely replies to this sender — likely a semi-automated source."
+            )
         parts.append("")
 
     ea = msg.get("from", {}).get("emailAddress", {})
     parts.append("Email to classify:")
+    if user_name:
+        parts.append(f"Recipient name: {user_name}")
     parts.append(f"From: {ea.get('name', '')} <{ea.get('address', '')}>")
     parts.append(f"Addressing: {_addressing_label(msg, user_email)}")
     parts.append(f"Subject: {msg.get('subject', '(no subject)')}")
@@ -165,6 +245,33 @@ def classify(msg: dict, db: Session) -> dict:
             "reasoning": cached.reasoning,
         }
 
+    sender_address = msg.get("from", {}).get("emailAddress", {}).get("address", "").lower()
+    sender_history = _get_sender_history(sender_address, db)
+
+    # Fast-path: sender has enough history and user has NEVER replied — skip Claude entirely.
+    if (sender_history
+            and sender_history["total"] >= _PATTERN_STRONG_SAMPLES
+            and sender_history["replied"] == 0):
+        reasoning = (
+            f"Sender pattern: {sender_history['total']} previous emails from this address, "
+            "user has never replied to any — treating as transactional."
+        )
+        logger.debug("Sender fast-path (never replied): %s", sender_address)
+        _store_classification(db, msg_id, False, 0.05, reasoning)
+        return {"needs_reply": False, "confidence": 0.05, "reasoning": reasoning}
+
+    # Salutation mismatch fast-path: "Hi Sam" when user is not Sam → skip
+    user_name_row = db.query(Setting).filter_by(key="user_name").first()
+    user_name = user_name_row.value if user_name_row else None
+    user_first_name = user_name.split()[0] if user_name else None
+    body_preview = (msg.get("bodyPreview") or "")
+    greeted_name = _salutation_mismatch(body_preview, user_first_name)
+    if greeted_name:
+        reasoning = f"Email is addressed to '{greeted_name}', not to you — likely intended for someone else."
+        logger.debug("Salutation mismatch fast-path: greeted=%s, user=%s", greeted_name, user_first_name)
+        _store_classification(db, msg_id, False, 0.10, reasoning)
+        return {"needs_reply": False, "confidence": 0.10, "reasoning": reasoning}
+
     rules_row = db.query(Setting).filter_by(key=RULES_SETTING_KEY).first()
     rules = rules_row.value if rules_row else None
 
@@ -186,7 +293,9 @@ def classify(msg: dict, db: Session) -> dict:
             model="claude-sonnet-4-6",
             max_tokens=256,
             system=_CLASSIFY_SYSTEM,
-            messages=[{"role": "user", "content": _build_classify_prompt(msg, feedback, rules, user_email)}],
+            messages=[{"role": "user", "content": _build_classify_prompt(
+                msg, feedback, rules, user_email, sender_history, user_name
+            )}],
         )
         result = _parse(response.content[0].text)
         needs_reply = bool(result.get("needs_reply", False))
@@ -197,6 +306,16 @@ def classify(msg: dict, db: Session) -> dict:
         needs_reply = True
         confidence = 0.5
         reasoning = "Classification unavailable"
+
+    # Post-processing: cap confidence based on sender skip-rate history.
+    if sender_history and needs_reply:
+        h = sender_history
+        if h["skip_rate"] >= 0.8:
+            confidence = min(confidence, 0.30)
+            reasoning += f" (capped: {h['skip_rate']:.0%} skip rate from {h['total']} prior emails)"
+        elif h["skip_rate"] >= 0.6:
+            confidence = min(confidence, 0.50)
+            reasoning += f" (reduced: {h['skip_rate']:.0%} skip rate from {h['total']} prior emails)"
 
     _store_classification(db, msg_id, needs_reply, confidence, reasoning)
     return {"needs_reply": needs_reply, "confidence": confidence, "reasoning": reasoning}
@@ -284,6 +403,11 @@ def record_feedback(
     needs_reply = decision == "needs_reply"
     _store_classification(db, msg_id, needs_reply, 1.0,
                           f"User decision: {decision}" + (f" — {reason}" if reason else ""))
+
+    # "resolved" decisions are not useful training signal — don't trigger rule derivation
+    if decision == "resolved":
+        db.commit()
+        return
 
     count = db.query(EmailFeedback).count()
     if count >= 5 and count % DERIVE_AFTER_N_FEEDBACKS == 0:

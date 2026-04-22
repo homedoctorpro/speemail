@@ -181,6 +181,23 @@ class GraphClient:
             },
         )
 
+    def get_conversation_messages(self, conversation_id: str) -> list[dict]:
+        """Return all messages in a conversation, sorted oldest-first."""
+        data = self.get(
+            "/me/messages",
+            params={
+                "$filter": f"conversationId eq '{conversation_id}'",
+                "$select": (
+                    "id,subject,from,toRecipients,ccRecipients,"
+                    "receivedDateTime,isRead,body,bodyPreview,conversationId"
+                ),
+                "$top": "50",
+            },
+        )
+        msgs = data.get("value", [])
+        msgs.sort(key=lambda m: m.get("receivedDateTime", ""))
+        return msgs
+
     def get_message(self, message_id: str) -> dict:
         return self.get(
             f"/me/messages/{message_id}",
@@ -224,13 +241,24 @@ class GraphClient:
     def send_draft(self, draft_id: str) -> None:
         self.post(f"/me/messages/{draft_id}/send", {})
 
-    def reply_to_message(self, message_id: str, body_text: str, subject: str | None = None) -> None:
+    def reply_to_message(self, message_id: str, body_text: str, subject: str | None = None) -> dict:
+        """Send a reply. Returns the draft dict (contains id, conversationId)."""
         draft = self.create_reply_draft(message_id)
         update: dict = {"body": {"contentType": "text", "content": body_text}}
         if subject:
             update["subject"] = subject
         self.update_draft(draft["id"], update)
         self.send_draft(draft["id"])
+        return draft
+
+    def get_latest_sent_message(self) -> dict | None:
+        """Return the most recently sent item (id, conversationId, subject, sentDateTime)."""
+        data = self.get(
+            "/me/mailFolders/SentItems/messages",
+            params={"$select": "id,conversationId,subject,sentDateTime", "$top": "1"},
+        )
+        msgs = data.get("value", [])
+        return msgs[0] if msgs else None
 
     def forward_message(self, message_id: str, to: list[str], body_text: str) -> None:
         draft = self.create_forward_draft(message_id)

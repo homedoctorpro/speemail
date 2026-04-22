@@ -6,6 +6,7 @@ Detects emails needing attention in both directions:
 from __future__ import annotations
 
 import logging
+import threading
 import time
 
 from sqlalchemy.orm import Session
@@ -14,10 +15,13 @@ from speemail.auth.graph_auth import GraphClient
 from speemail.models.tables import IgnoreRule, Setting, TrackedEmail
 from speemail.services import classification_service
 
+_DEFAULT_MIN_CONFIDENCE = 0.50
+
 logger = logging.getLogger(__name__)
 
-_CACHE_TTL = 300  # 5 minutes
-_needs_reply_cache: dict = {"data": [], "ts": 0.0}
+_CACHE_TTL = 300  # 5 minutes — controls background refresh frequency, not page load speed
+# data=None means "never populated"; data=[] means "populated but empty"
+_needs_reply_cache: dict = {"data": None, "ts": float("-inf"), "refreshing": False}
 
 
 
@@ -86,25 +90,62 @@ def _matches_ignore_rules(msg: dict, rules: list[IgnoreRule]) -> bool:
 
 
 def get_needs_reply(client: GraphClient, db: Session, limit: int = 20) -> list[dict]:
-    """
-    Return inbox messages the user has not replied to.
-    Results are cached for 5 minutes; cache is invalidated when rules change.
-    First scan uses full scan_days window; subsequent scans drop to 30 days.
-    """
-    now = time.monotonic()
-    if now - _needs_reply_cache["ts"] < _CACHE_TTL:
-        return _needs_reply_cache["data"][:limit]
-
+    """Fetch fresh data, update cache, and return results."""
     try:
         ignore_rules = db.query(IgnoreRule).all()
         result = _fetch_needs_reply(client, db, ignore_rules, limit)
         _needs_reply_cache["data"] = result
-        _needs_reply_cache["ts"] = now
-
+        _needs_reply_cache["ts"] = time.monotonic()
         return result
     except Exception as exc:
         logger.error("Failed to fetch unresponded inbox emails: %s", exc, exc_info=True)
-        return _needs_reply_cache["data"][:limit]
+        return (_needs_reply_cache["data"] or [])[:limit]
+    finally:
+        _needs_reply_cache["refreshing"] = False
+
+
+def _refresh_in_background(client: GraphClient, db: Session) -> None:
+    """Kick off a one-shot background thread to refresh the cache."""
+    if _needs_reply_cache["refreshing"]:
+        return
+    _needs_reply_cache["refreshing"] = True
+
+    def _run() -> None:
+        try:
+            get_needs_reply(client, db)
+            logger.debug("Background needs-reply cache refresh complete")
+        except Exception as exc:
+            logger.warning("Background needs-reply refresh failed: %s", exc)
+            _needs_reply_cache["refreshing"] = False
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def get_needs_reply_cached(
+    client: GraphClient,
+    db: Session,
+    limit: int = 10,
+) -> list[dict] | None:
+    """
+    Return instantly from cache. Triggers a background refresh when stale.
+    Returns None only on the very first load (cache never populated).
+    """
+    data = _needs_reply_cache["data"]
+    if data is None:
+        return None  # first ever load — caller falls back to blocking fetch
+    if time.monotonic() - _needs_reply_cache["ts"] >= _CACHE_TTL:
+        _refresh_in_background(client, db)
+    return data[:limit]
+
+
+def _get_min_confidence(db: Session) -> float:
+    row = db.query(Setting).filter_by(key="needs_reply_min_confidence").first()
+    if row:
+        try:
+            return int(row.value) / 100.0
+        except (ValueError, TypeError):
+            pass
+    return _DEFAULT_MIN_CONFIDENCE
 
 
 def _fetch_needs_reply(
@@ -142,6 +183,14 @@ def _fetch_needs_reply(
     inbox_msgs = inbox_data.get("value", [])
     logger.info("Inbox messages fetched: %d", len(inbox_msgs))
 
+    # Build a map of conversationId → all inbox messages in that thread, sorted oldest-first.
+    # Used to detect when someone else has replied after the original email.
+    conv_msgs: dict[str, list[dict]] = {}
+    for m in inbox_msgs:
+        cid = m.get("conversationId", "")
+        conv_msgs.setdefault(cid, []).append(m)
+
+    min_confidence = _get_min_confidence(db)
     unresponded = []
     for msg in inbox_msgs:
         conv_id = msg.get("conversationId", "")
@@ -159,13 +208,30 @@ def _fetch_needs_reply(
 
         # AI classification (cached in DB after first call)
         clf = classification_service.classify(msg, db)
-        if not clf["needs_reply"] and clf["confidence"] >= 0.75:
+        if not clf["needs_reply"] or clf["confidence"] < min_confidence:
             logger.debug(
-                "Skipping (AI %.0f%% confident no reply needed): %s",
+                "Skipping (needs_reply=%s confidence=%.0f%% threshold=%.0f%%): %s",
+                clf["needs_reply"],
                 clf["confidence"] * 100,
+                min_confidence * 100,
                 msg.get("subject"),
             )
             continue
+
+        # Detect other replies in the same thread that arrived after this message.
+        original_sender = msg.get("from", {}).get("emailAddress", {}).get("address", "").lower()
+        thread_replies = [
+            m for m in conv_msgs.get(conv_id, [])
+            if m.get("receivedDateTime", "") > received_dt
+            and m.get("from", {}).get("emailAddress", {}).get("address", "").lower() != original_sender
+        ]
+        if thread_replies:
+            latest = max(thread_replies, key=lambda m: m.get("receivedDateTime", ""))
+            latest_ea = latest.get("from", {}).get("emailAddress", {})
+            msg["_thread_activity"] = {
+                "count": len(thread_replies),
+                "latest_sender": latest_ea.get("name") or latest_ea.get("address", "Someone"),
+            }
 
         msg["_classification"] = clf
         unresponded.append(msg)
@@ -176,8 +242,16 @@ def _fetch_needs_reply(
     return unresponded
 
 
+def get_needs_reply_if_cached(limit: int = 10) -> list[dict] | None:
+    """Return cached data only if fresh (no Graph calls). Used by inbox filter endpoint."""
+    data = _needs_reply_cache["data"]
+    if data is not None and time.monotonic() - _needs_reply_cache["ts"] < _CACHE_TTL:
+        return data[:limit]
+    return None
+
+
 def invalidate_cache() -> None:
-    _needs_reply_cache["ts"] = 0.0
+    _needs_reply_cache["ts"] = float("-inf")
 
 
 def get_awaiting_response(db: Session, limit: int = 20) -> list[TrackedEmail]:

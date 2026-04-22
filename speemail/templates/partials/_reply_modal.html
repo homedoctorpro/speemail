@@ -18,8 +18,12 @@
         hx-post="/api/v1/inbox/messages/{{ msg.id }}/reply"
         hx-target="#toast-container"
         hx-swap="beforeend"
-        hx-on::after-request="if(event.detail.successful) document.getElementById('reply-modal').close()"
+        hx-on::after-request="if(event.detail.successful){ document.getElementById('reply-modal').close(); if(typeof onInboxFeedback==='function') onInboxFeedback('{{ msg.id }}', 'resolved'); }"
         class="compose-form">
+        <input type="hidden" name="subject" value="{{ (msg.subject or '') | e }}" />
+        <input type="hidden" name="sender_address" value="{{ from_ea.get('address', '') | e }}" />
+        <input type="hidden" name="sender_name" value="{{ sender | e }}" />
+        <input type="hidden" name="body_preview" value="{{ (msg.bodyPreview or '')[:200] | e }}" />
 
         <div class="compose-field compose-field-body">
           <textarea name="body" class="form-textarea compose-textarea"
@@ -28,6 +32,10 @@
 
         <div class="modal-actions">
           <button type="submit" class="btn btn-primary">Send Reply</button>
+          <label class="watch-reply-label">
+            <input type="checkbox" name="watch" value="true" class="watch-reply-checkbox" />
+            Watch for reply
+          </label>
           <button type="button" class="btn btn-ghost"
             onclick="document.getElementById('reply-modal').close()">Cancel</button>
         </div>

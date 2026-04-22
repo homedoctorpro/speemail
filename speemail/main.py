@@ -16,7 +16,7 @@ def _ipv4_preferred(host, port, family=0, type=0, proto=0, flags=0):
 
 socket.getaddrinfo = _ipv4_preferred
 
-from speemail.config import settings
+from speemail.config import settings  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,

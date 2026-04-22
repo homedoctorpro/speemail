@@ -15,31 +15,77 @@
       <span class="home-section-title">Needs Your Reply</span>
       <a href="/inbox" class="home-section-link">See all →</a>
     </div>
-    <div id="needs-reply-list"
-      hx-get="/api/v1/dashboard/needs-reply"
-      hx-trigger="load"
-      hx-swap="innerHTML">
-      <div class="loading-state"><span class="spinner"></span> Loading…</div>
-    </div>
+    {% if needs_reply_cached is not none %}
+      <div id="needs-reply-list">
+        {% set emails = needs_reply_cached %}
+        {% include "partials/_unresponded_list.html" %}
+      </div>
+    {% else %}
+      <div id="needs-reply-list"
+        hx-get="/api/v1/dashboard/needs-reply"
+        hx-trigger="load"
+        hx-swap="innerHTML">
+        <div class="loading-state"><span class="spinner"></span> Loading…</div>
+      </div>
+    {% endif %}
   </div>
 
   <!-- Awaiting Their Response -->
   <div class="home-section">
     <div class="home-section-header">
       <span class="home-section-title">Awaiting Response</span>
-      <a href="/queue" class="home-section-link">See queue →</a>
     </div>
-    {% if follow_ups %}
+    {% if watched_threads %}
       <div class="home-email-list">
-        {% for email in follow_ups %}
-          <div class="home-email-row">
-            <div class="home-email-subject">{{ email.original_subject }}</div>
-            <div class="home-email-meta">To: {{ email.original_to }} · {{ email.sent_at | timeago }}</div>
+        {% for wt in watched_threads %}
+          {% set overdue = wt.sent_at < now_minus_hours %}
+          <div class="home-email-row watched-thread-row {% if overdue %}watched-overdue{% endif %}" id="watch-row-{{ wt.id }}">
+            <div class="home-email-main">
+              <div class="home-email-subject">{{ wt.subject }}</div>
+              <div class="home-email-meta">
+                {% if wt.source == 'manual_inbox' %}Watching:{% else %}To:{% endif %}
+                {{ wt.recipient }} · {{ wt.sent_at | timeago }}
+                {% if overdue %}<span class="overdue-badge">Overdue</span>{% endif %}
+              </div>
+              {% if wt.source == 'auto' and wt.ai_reasoning %}
+                <div class="home-email-reasoning">{{ wt.ai_reasoning }}</div>
+              {% endif %}
+            </div>
+            <div class="home-email-actions">
+              {% if wt.source == 'auto' %}
+                <button class="row-action-btn needs-reply-confirm-btn"
+                  title="Correct — keep watching"
+                  hx-post="/api/v1/watched-threads/{{ wt.id }}/feedback"
+                  hx-target="#toast-container"
+                  hx-swap="beforeend"
+                  hx-vals='{"decision": "expects_reply"}'>
+                  ✓
+                </button>
+                <button class="row-action-btn needs-reply-skip-btn"
+                  title="Wrong — doesn't need a reply, remove"
+                  hx-post="/api/v1/watched-threads/{{ wt.id }}/feedback"
+                  hx-target="#toast-container"
+                  hx-swap="beforeend"
+                  hx-vals='{"decision": "skip"}'
+                  hx-on::after-request="document.getElementById('watch-row-{{ wt.id }}').remove()">
+                  ✕
+                </button>
+              {% else %}
+                <button class="row-action-btn needs-reply-confirm-btn"
+                  title="Mark resolved — got a response or no longer needed"
+                  hx-delete="/api/v1/watched-threads/{{ wt.id }}"
+                  hx-target="#toast-container"
+                  hx-swap="beforeend"
+                  hx-on::after-request="document.getElementById('watch-row-{{ wt.id }}').remove()">
+                  ✓
+                </button>
+              {% endif %}
+            </div>
           </div>
         {% endfor %}
       </div>
     {% else %}
-      <div class="home-empty">No sent emails awaiting response.</div>
+      <div class="home-empty">No threads being watched.</div>
     {% endif %}
   </div>
 

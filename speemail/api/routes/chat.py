@@ -49,12 +49,6 @@ def send_chat_message(
         logger.exception("Chat AI error")
         reply = "Sorry, I ran into an error. Please try again."
 
-    from speemail.models.tables import ChatMessage
-
-    # Return the two new messages (user + assistant)
-    user_msg = ChatMessage(role="user", content=message)
-    asst_msg = ChatMessage(role="assistant", content=reply)
-
     return request.app.state.templates.TemplateResponse(
         "partials/_chat_new_messages.html",
         {"request": request, "user_message": message, "assistant_message": reply},

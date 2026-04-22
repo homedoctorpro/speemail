@@ -4,6 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block title %}Speemail{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="/static/logo.svg" />
+  <script>
+    (function() {
+      var t = localStorage.getItem('theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
   <script src="https://unpkg.com/htmx.org@2.0.0" integrity="sha384-wS5l5IKJBvK6sPTKa2WZ1js3d947pvWXbPJ1OmWfEuxLgeHcEbjUUA5i9V5ZkpCw" crossorigin="anonymous"></script>
   <link rel="stylesheet" href="/static/style.css" />
   <meta name="current-path" content="{{ request.url.path }}" />
@@ -11,7 +18,7 @@
 <body>
   <nav class="nav">
     <div class="nav-brand">
-      <span class="nav-logo">⚡</span>
+      <img src="/static/logo.svg" class="nav-logo-img" alt="Speemail" />
       <span class="nav-title">Speemail</span>
     </div>
     <div class="nav-links">
@@ -32,6 +39,7 @@
         <span id="check-spinner" class="htmx-indicator spinner-inline"></span>
         Check Now
       </button>
+      <button class="btn btn-sm btn-ghost" id="theme-toggle" onclick="toggleTheme()" title="Toggle dark/light mode">🌙</button>
       <button class="btn btn-sm btn-ghost" onclick="toggleChat()" title="AI Assistant (\)">💬</button>
       <button class="btn btn-sm btn-ghost" onclick="toggleShortcutsHelp()" title="Keyboard shortcuts (?)">⌨</button>
       <span id="auth-badge"
@@ -90,6 +98,23 @@
     function toggleShortcutsHelp() {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: '?' }));
     }
+
+    function toggleTheme() {
+      var html = document.documentElement;
+      var current = html.getAttribute('data-theme') || 'dark';
+      var next = current === 'dark' ? 'light' : 'dark';
+      html.setAttribute('data-theme', next);
+      localStorage.setItem('theme', next);
+      var btn = document.getElementById('theme-toggle');
+      if (btn) btn.textContent = next === 'dark' ? '🌙' : '☀️';
+    }
+
+    // Set theme button icon to match current theme
+    (function() {
+      var theme = document.documentElement.getAttribute('data-theme') || 'dark';
+      var btn = document.getElementById('theme-toggle');
+      if (btn) btn.textContent = theme === 'dark' ? '🌙' : '☀️';
+    })();
 
     // Chat panel
     function toggleChat() {

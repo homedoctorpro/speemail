@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from speemail.models.database import Base
@@ -149,6 +149,46 @@ class EmailClassification(Base):
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
     reasoning: Mapped[str] = mapped_column(Text, nullable=False)
     classified_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+
+class WatchedThread(Base):
+    """A thread the user is monitoring for new replies."""
+    __tablename__ = "watched_threads"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    graph_message_id: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    graph_conversation_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    subject: Mapped[str] = mapped_column(String, nullable=False, default="")
+    recipient: Mapped[str] = mapped_column(String, nullable=False, default="")
+    sent_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    # source: 'manual_sent' | 'manual_inbox' | 'auto'
+    source: Mapped[str] = mapped_column(String, nullable=False, default="manual_sent")
+    has_reply: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    replied_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    resolved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # AI classification fields (auto-watched threads only)
+    ai_expects_reply: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    ai_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ai_reasoning: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class SentEmailScan(Base):
+    """Cache of AI classification for each sent email (expects reply or not)."""
+    __tablename__ = "sent_email_scans"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    graph_message_id: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    subject: Mapped[str] = mapped_column(String, nullable=False, default="")
+    recipient: Mapped[str] = mapped_column(String, nullable=False, default="")
+    body_preview: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    expects_reply: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    reasoning: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # user_decision: null | 'expects_reply' | 'skip'
+    user_decision: Mapped[str | None] = mapped_column(String, nullable=True)
+    scanned_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
 
 
 class EmailFeedback(Base):

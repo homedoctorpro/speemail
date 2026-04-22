@@ -20,13 +20,36 @@
       </div>
     </div>
 
-    <div
-      id="inbox-message-list"
+    <div class="inbox-filter-bar">
+      <button class="inbox-filter-btn active" id="filter-all"
+        onclick="setInboxFilter('all')">All</button>
+      <button class="inbox-filter-btn" id="filter-needs-reply"
+        onclick="setInboxFilter('needs-reply')">Needs My Reply</button>
+      <button class="inbox-filter-btn" id="filter-awaiting"
+        onclick="setInboxFilter('awaiting')">Awaiting Response</button>
+    </div>
+
+    <!-- All three tab contents loaded in parallel on page load -->
+    <div id="inbox-tab-all"
       hx-get="/api/v1/inbox/messages"
       hx-trigger="load"
       hx-swap="innerHTML"
       hx-indicator="#inbox-spinner">
       <div class="loading-state"><span class="spinner"></span> Loading inbox…</div>
+    </div>
+
+    <div id="inbox-tab-needs-reply" style="display:none"
+      hx-get="/api/v1/inbox/filter/needs-reply"
+      hx-trigger="load"
+      hx-swap="innerHTML">
+      <div class="loading-state"><span class="spinner"></span> Loading…</div>
+    </div>
+
+    <div id="inbox-tab-awaiting" style="display:none"
+      hx-get="/api/v1/inbox/filter/awaiting-response"
+      hx-trigger="load"
+      hx-swap="innerHTML">
+      <div class="loading-state"><span class="spinner"></span> Loading…</div>
     </div>
 
     <span id="inbox-spinner" class="htmx-indicator loading-overlay">
@@ -49,26 +72,50 @@
 <div id="modal-container"></div>
 
 <script>
-  // If ?open=<messageId> is in the URL, open that message once the list loads.
+  var _activeTab = 'all';
+  var _tabIds = { 'all': 'inbox-tab-all', 'needs-reply': 'inbox-tab-needs-reply', 'awaiting': 'inbox-tab-awaiting' };
+  var _btnIds  = { 'all': 'filter-all',   'needs-reply': 'filter-needs-reply',    'awaiting': 'filter-awaiting' };
+
+  function setInboxFilter(tab) {
+    if (tab === _activeTab) return;
+    document.getElementById(_tabIds[_activeTab]).style.display = 'none';
+    document.getElementById(_btnIds[_activeTab]).classList.remove('active');
+    document.getElementById(_tabIds[tab]).style.display = '';
+    document.getElementById(_btnIds[tab]).classList.add('active');
+    _activeTab = tab;
+  }
+
+  // Called by the detail pane feedback buttons after a decision is recorded.
+  function onInboxFeedback(messageId, decision) {
+    var filterExcludes = (decision === 'skip' || decision === 'resolved') && _activeTab === 'needs-reply';
+    if (filterExcludes) {
+      var row = document.getElementById('row-' + messageId);
+      if (row) row.remove();
+      document.getElementById('message-detail-pane').innerHTML =
+        '<div class="detail-empty"><div class="empty-title">Marked — no reply needed</div></div>';
+      document.getElementById('inbox-list-pane').classList.remove('detail-open');
+    }
+  }
+
+  // Once the "All" tab loads: open a specific message (?open=id) or auto-open the first one.
   (function () {
-    const params = new URLSearchParams(window.location.search);
-    const openId = params.get('open');
-    if (!openId) return;
+    const openId = new URLSearchParams(window.location.search).get('open');
 
     document.body.addEventListener('htmx:afterSwap', function handler(e) {
-      if (e.detail.target.id !== 'inbox-message-list') return;
+      if (e.detail.target.id !== 'inbox-tab-all') return;
       document.body.removeEventListener('htmx:afterSwap', handler);
 
-      const row = document.getElementById('row-' + openId);
-      if (row) {
-        row.click();
-      } else {
-        // Message not in current page — load detail directly
-        htmx.ajax('GET', '/api/v1/inbox/messages/' + openId, {
+      if (openId) {
+        htmx.ajax('GET', '/api/v1/inbox/messages/' + encodeURIComponent(openId), {
           target: '#message-detail-pane',
           swap: 'innerHTML',
         });
         document.getElementById('inbox-list-pane').classList.add('detail-open');
+        const row = document.getElementById('row-' + openId);
+        if (row) row.classList.add('keyboard-focused');
+      } else {
+        const first = document.querySelector('#inbox-tab-all .message-row');
+        if (first) first.click();
       }
     });
   })();

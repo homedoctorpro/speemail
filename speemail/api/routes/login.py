@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from speemail.config import settings
 from speemail.middleware.auth_middleware import _make_token

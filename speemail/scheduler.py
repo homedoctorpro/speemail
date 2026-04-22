@@ -13,7 +13,7 @@ from speemail.auth.graph_auth import get_graph_client
 from speemail.config import settings
 from speemail.models.database import get_session
 from speemail.models.tables import Setting
-from speemail.services import ai_engine, email_poller
+from speemail.services import ai_engine, email_poller, sent_classification_service, watched_threads_service
 from speemail.services.user_identity import save_user_identity
 
 logger = logging.getLogger(__name__)
@@ -58,7 +58,27 @@ def poll_emails_job() -> None:
             draft = ai_engine.draft_quick_reply(email, user_display_name)
             ai_engine.apply_draft_to_email(email, draft)
 
-    total = len(follow_ups) + len(quick_replies)
+        # 3. Scan recent sent items for emails expecting replies, auto-watch them
+        try:
+            sent_data = client.get(
+                "/me/mailFolders/SentItems/messages",
+                params={
+                    "$select": "id,subject,conversationId,sentDateTime,toRecipients,bodyPreview",
+                    "$top": "50",
+                },
+            )
+            sent_msgs = sent_data.get("value", [])
+            new_watches = sent_classification_service.scan_sent_items(client, db, sent_msgs)
+            if new_watches:
+                logger.info("Auto-watched %d sent emails expecting replies", new_watches)
+        except Exception as exc:
+            logger.warning("Sent email scan failed: %s", exc)
+
+        # 4. Check watched threads for replies
+        replied = watched_threads_service.check_replies(client, db)
+        if replied:
+            logger.info("Watched threads with replies detected: %d", replied)
+
     logger.info("Poll cycle complete: %d follow-ups, %d quick replies", len(follow_ups), len(quick_replies))
     _last_run = datetime.utcnow()
     _last_error = None

@@ -1,8 +1,7 @@
 {% set from_ea = msg.get('from', {}).get('emailAddress', {}) %}
 {% set sender_name = from_ea.get('name', '') %}
 {% set sender_addr = from_ea.get('address', '') %}
-{% set body = msg.get('body', {}) %}
-{% set is_html = body.get('contentType', '') | lower == 'html' %}
+{% set conv_id = msg.get('conversationId', '') %}
 
 <div class="detail-header">
   <button class="detail-back btn btn-ghost btn-sm"
@@ -11,6 +10,37 @@
   </button>
 
   <div class="detail-actions">
+    <div class="detail-feedback">
+      <span class="detail-feedback-label">Needs reply?</span>
+      <button class="btn btn-sm btn-ghost detail-feedback-yes"
+        title="Yes, I need to reply to this"
+        hx-post="/api/v1/needs-reply/{{ msg.id }}/feedback"
+        hx-target="#toast-container"
+        hx-swap="beforeend"
+        hx-vals='{"decision": "needs_reply", "subject": {{ (msg.subject or '') | tojson }}, "sender_address": {{ sender_addr | tojson }}, "sender_name": {{ sender_name | tojson }}}'
+        hx-on::after-request="if(typeof onInboxFeedback==='function') onInboxFeedback('{{ msg.id }}', 'needs_reply')">
+        ✓ Yes
+      </button>
+      <button class="btn btn-sm btn-ghost detail-feedback-no"
+        title="No reply needed"
+        hx-post="/api/v1/needs-reply/{{ msg.id }}/feedback"
+        hx-target="#toast-container"
+        hx-swap="beforeend"
+        hx-vals='{"decision": "skip", "subject": {{ (msg.subject or '') | tojson }}, "sender_address": {{ sender_addr | tojson }}, "sender_name": {{ sender_name | tojson }}}'
+        hx-on::after-request="if(typeof onInboxFeedback==='function') onInboxFeedback('{{ msg.id }}', 'skip')">
+        ✗ No
+      </button>
+      <button class="btn btn-sm btn-ghost detail-feedback-resolved"
+        title="Handled another way (phone call, someone else stepped in, etc.)"
+        hx-post="/api/v1/needs-reply/{{ msg.id }}/feedback"
+        hx-target="#toast-container"
+        hx-swap="beforeend"
+        hx-vals='{"decision": "resolved", "subject": {{ (msg.subject or '') | tojson }}, "sender_address": {{ sender_addr | tojson }}, "sender_name": {{ sender_name | tojson }}}'
+        hx-on::after-request="if(typeof onInboxFeedback==='function') onInboxFeedback('{{ msg.id }}', 'resolved')">
+        ✓ Done
+      </button>
+    </div>
+
     <button id="reply-btn" data-action="reply"
       class="btn btn-primary btn-sm"
       hx-get="/partials/reply/{{ msg.id }}"
@@ -25,6 +55,29 @@
       hx-swap="innerHTML">
       Forward <kbd>f</kbd>
     </button>
+
+    {% set detail_url = '/api/v1/inbox/messages/' ~ (msg.id | urlencode_value) %}
+    {% if watched %}
+      <button class="btn btn-sm btn-watch-active"
+        title="Watching this thread — click to unwatch"
+        hx-delete="/api/v1/watched-threads/{{ watched.id }}"
+        hx-target="#toast-container"
+        hx-swap="beforeend"
+        hx-on::after-request="htmx.ajax('GET', '{{ detail_url }}', {target: '#message-detail-pane', swap: 'innerHTML'})">
+        👁 Watching
+      </button>
+    {% else %}
+      <button class="btn btn-ghost btn-sm"
+        title="Watch this thread for new replies"
+        hx-post="/api/v1/watched-threads/watch-inbox"
+        hx-target="#toast-container"
+        hx-swap="beforeend"
+        hx-vals='{"message_id": {{ msg.id | tojson }}, "conversation_id": {{ conv_id | tojson }}, "subject": {{ (msg.subject or "") | tojson }}, "sender": {{ sender_name | tojson }}}'
+        hx-on::after-request="htmx.ajax('GET', '{{ detail_url }}', {target: '#message-detail-pane', swap: 'innerHTML'})">
+        👁 Watch
+      </button>
+    {% endif %}
+
     <button class="btn btn-ghost btn-sm"
       hx-post="/api/v1/inbox/messages/{{ msg.id }}/trash"
       hx-target="#toast-container"
@@ -39,42 +92,71 @@
 <div class="detail-body">
   <h2 class="detail-subject">{{ msg.subject or '(no subject)' }}</h2>
 
-  <div class="detail-meta">
-    <div class="detail-from">
-      <strong>From:</strong>
-      {% if sender_name %}{{ sender_name }} &lt;{{ sender_addr }}&gt;{% else %}{{ sender_addr }}{% endif %}
-    </div>
-    {% set to_list = msg.get('toRecipients', []) %}
-    {% if to_list %}
-    <div class="detail-to">
-      <strong>To:</strong>
-      {% for r in to_list %}
-        {{ r.get('emailAddress', {}).get('name') or r.get('emailAddress', {}).get('address', '') }}{% if not loop.last %}, {% endif %}
-      {% endfor %}
-    </div>
-    {% endif %}
-    {% set cc_list = msg.get('ccRecipients', []) %}
-    {% if cc_list %}
-    <div class="detail-cc">
-      <strong>Cc:</strong>
-      {% for r in cc_list %}
-        {{ r.get('emailAddress', {}).get('name') or r.get('emailAddress', {}).get('address', '') }}{% if not loop.last %}, {% endif %}
-      {% endfor %}
-    </div>
-    {% endif %}
-    <div class="detail-date">{{ msg.get('receivedDateTime') | timeago }}</div>
-  </div>
+  <!-- Thread messages -->
+  {% set msgs = thread_msgs if thread_msgs else [msg] %}
+  {% for m in msgs %}
+    {% set m_ea = m.get('from', {}).get('emailAddress', {}) %}
+    {% set m_sender = m_ea.get('name') or m_ea.get('address', '') %}
+    {% set m_body = m.get('body', {}) %}
+    {% set m_is_html = m_body.get('contentType', '') | lower == 'html' %}
+    {% set is_latest = loop.last %}
 
-  <div class="detail-content">
-    {% if is_html %}
-      <iframe
-        class="detail-iframe"
-        srcdoc="{{ body.get('content', '') | e }}"
-        sandbox="allow-same-origin"
-        onload="this.style.height=this.contentDocument.body.scrollHeight+40+'px'">
-      </iframe>
+    {% if not is_latest %}
+      <details class="thread-message thread-message-collapsed">
+        <summary class="thread-message-header">
+          <span class="thread-msg-sender">{{ m_sender }}</span>
+          <span class="thread-msg-time">{{ m.get('receivedDateTime') | timeago }}</span>
+          <span class="thread-msg-preview">{{ (m.get('bodyPreview') or '')[:80] }}</span>
+        </summary>
+        <div class="thread-message-body">
+          {% if m_is_html %}
+            <iframe class="detail-iframe" srcdoc="{{ m_body.get('content', '') | e }}"
+              sandbox="allow-same-origin"
+              onload="this.style.height=this.contentDocument.body.scrollHeight+40+'px'"></iframe>
+          {% else %}
+            <pre class="detail-text">{{ m_body.get('content', '') }}</pre>
+          {% endif %}
+        </div>
+      </details>
     {% else %}
-      <pre class="detail-text">{{ body.get('content', '') }}</pre>
+      <div class="thread-message thread-message-latest">
+        <div class="thread-message-header">
+          <div class="detail-meta">
+            <div class="detail-from">
+              <strong>From:</strong>
+              {% if m_sender %}{{ m_sender }} &lt;{{ m_ea.get('address', '') }}&gt;{% else %}{{ m_ea.get('address', '') }}{% endif %}
+            </div>
+            {% set to_list = m.get('toRecipients', []) %}
+            {% if to_list %}
+            <div class="detail-to">
+              <strong>To:</strong>
+              {% for r in to_list %}
+                {{ r.get('emailAddress', {}).get('name') or r.get('emailAddress', {}).get('address', '') }}{% if not loop.last %}, {% endif %}
+              {% endfor %}
+            </div>
+            {% endif %}
+            {% set cc_list = m.get('ccRecipients', []) %}
+            {% if cc_list %}
+            <div class="detail-cc">
+              <strong>Cc:</strong>
+              {% for r in cc_list %}
+                {{ r.get('emailAddress', {}).get('name') or r.get('emailAddress', {}).get('address', '') }}{% if not loop.last %}, {% endif %}
+              {% endfor %}
+            </div>
+            {% endif %}
+            <div class="detail-date">{{ m.get('receivedDateTime') | timeago }}</div>
+          </div>
+        </div>
+        <div class="detail-content thread-message-body">
+          {% if m_is_html %}
+            <iframe class="detail-iframe" srcdoc="{{ m_body.get('content', '') | e }}"
+              sandbox="allow-same-origin"
+              onload="this.style.height=this.contentDocument.body.scrollHeight+40+'px'"></iframe>
+          {% else %}
+            <pre class="detail-text">{{ m_body.get('content', '') }}</pre>
+          {% endif %}
+        </div>
+      </div>
     {% endif %}
-  </div>
+  {% endfor %}
 </div>

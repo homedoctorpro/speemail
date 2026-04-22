@@ -49,9 +49,13 @@
   }
 
   function getFocusableItems() {
-    // Works for both inbox rows and queue cards
+    // For inbox: only rows in the visible tab. For queue: all cards.
+    const activeTab = ['inbox-tab-all', 'inbox-tab-needs-reply', 'inbox-tab-awaiting']
+      .map(id => document.getElementById(id))
+      .find(el => el && el.style.display !== 'none');
+    const scope = activeTab || document;
     return Array.from(
-      document.querySelectorAll('.message-row, .email-card:not(.card-sent):not(.card-rejected)')
+      scope.querySelectorAll('.message-row, .email-card:not(.card-sent):not(.card-rejected)')
     );
   }
 
@@ -273,20 +277,20 @@
         break;
 
       case 'j':
-      case 'ArrowDown': {
-        e.preventDefault();
-        const items = getFocusableItems();
-        if (!items.length) break;
-        setFocus(focusedIndex < 0 ? 0 : focusedIndex + 1);
-        break;
-      }
-
-      case 'k':
       case 'ArrowUp': {
         e.preventDefault();
         const items = getFocusableItems();
         if (!items.length) break;
         setFocus(focusedIndex < 0 ? items.length - 1 : focusedIndex - 1);
+        break;
+      }
+
+      case 'k':
+      case 'ArrowDown': {
+        e.preventDefault();
+        const items = getFocusableItems();
+        if (!items.length) break;
+        setFocus(focusedIndex < 0 ? 0 : focusedIndex + 1);
         break;
       }
 
@@ -333,15 +337,21 @@
     }
   });
 
-  // Re-set focus index to 0 after HTMX swaps in a new list
   document.body.addEventListener('htmx:afterSwap', function (e) {
     const target = e.detail.target;
-    if (
-      target.id === 'pending-queue' ||
-      target.id === 'inbox-message-list' ||
-      target.id === 'history-list'
-    ) {
+    if (target.id === 'pending-queue' || target.id === 'history-list') {
       focusedIndex = -1;
+    } else if (target.id === 'inbox-tab-all') {
+      const openId = new URLSearchParams(window.location.search).get('open');
+      if (openId) {
+        // If the target row is visible in the list, focus it so j/k is relative to it.
+        const items = getFocusableItems();
+        const idx = items.findIndex(el => el.id === 'row-' + openId);
+        if (idx >= 0) setFocus(idx); else focusedIndex = -1;
+      } else {
+        // Auto-opened first row; start keyboard focus there.
+        setFocus(0);
+      }
     }
   });
 

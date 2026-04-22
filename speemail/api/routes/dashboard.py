@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.orm import Session
@@ -5,23 +7,33 @@ from sqlalchemy.orm import Session
 from speemail.api.deps import get_db_dep, get_graph_dep
 from speemail.auth.graph_auth import GraphClient
 from speemail.models.tables import Task, TrackedEmail
-from speemail.services import classification_service, unresponded_service
+from speemail.services import classification_service, unresponded_service, watched_threads_service
 
 router = APIRouter(tags=["pages"])
 
 
 @router.get("/", response_class=HTMLResponse)
-def home(request: Request, db: Session = Depends(get_db_dep)):
+def home(
+    request: Request,
+    db: Session = Depends(get_db_dep),
+    client: GraphClient = Depends(get_graph_dep),
+):
     queue_count = db.query(TrackedEmail).filter_by(status="pending_approval").count()
     open_tasks = db.query(Task).filter(Task.status != "done").order_by(Task.created_at.desc()).limit(5).all()
-    follow_ups = unresponded_service.get_awaiting_response(db, limit=5)
+    watched = watched_threads_service.get_active(db)
+    alert_hours = watched_threads_service.get_alert_hours(db)
+    # Returns instantly from cache (even stale). None only on very first ever load.
+    needs_reply_cached = unresponded_service.get_needs_reply_cached(client, db, limit=10)
     return request.app.state.templates.TemplateResponse(
         "home.html",
         {
             "request": request,
             "queue_count": queue_count,
             "open_tasks": open_tasks,
-            "follow_ups": follow_ups,
+            "watched_threads": watched,
+            "alert_hours": alert_hours,
+            "now_minus_hours": datetime.utcnow() - timedelta(hours=alert_hours),
+            "needs_reply_cached": needs_reply_cached,
         },
     )
 
@@ -46,7 +58,6 @@ def debug_unresponded(
     db: Session = Depends(get_db_dep),
     client: GraphClient = Depends(get_graph_dep),
 ):
-    from speemail.models.tables import IgnoreRule
     sent_data = client.get("/me/mailFolders/SentItems/messages", params={"$select": "conversationId,sentDateTime", "$top": "10"})
     inbox_data = client.get("/me/mailFolders/Inbox/messages", params={"$select": "id,subject,receivedDateTime,conversationId", "$top": "10", "$orderby": "receivedDateTime desc"})
     sent_conv_dates: dict = {}
@@ -93,7 +104,12 @@ def needs_reply_feedback(
         body_preview=body_preview,
     )
     unresponded_service.invalidate_cache()
-    label = "Marked as needs reply" if decision == "needs_reply" else "Skipped"
+    if decision == "needs_reply":
+        label = "Marked as needs reply"
+    elif decision == "resolved":
+        label = "Marked as resolved"
+    else:
+        label = "Skipped"
     return request.app.state.templates.TemplateResponse(
         "partials/_toast.html",
         {"request": request, "message": label, "type": "success"},

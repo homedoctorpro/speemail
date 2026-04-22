@@ -4,9 +4,8 @@ Gives Claude access to user memories, tasks, and email context.
 """
 from __future__ import annotations
 
-import json
 import logging
-from datetime import datetime, date
+from datetime import datetime
 from typing import Any
 
 import anthropic

@@ -47,6 +47,18 @@
     </div>
 
     <div class="form-group">
+      <label class="form-label">Alert for watched threads after (hours)</label>
+      <input type="number" name="watched_thread_alert_hours" class="form-input" min="1" max="720" />
+      <span class="form-hint">Highlight watched threads as overdue after this many hours with no reply. Default: 48 hours.</span>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Minimum confidence to show in "Needs Your Reply" (%)</label>
+      <input type="number" name="needs_reply_min_confidence" class="form-input" min="0" max="100" />
+      <span class="form-hint">Only show emails where the AI is at least this confident a reply is needed. Default: 50%.</span>
+    </div>
+
+    <div class="form-group">
       <label class="form-label">Email signature</label>
       <textarea name="email_signature" class="form-textarea" rows="4"
         placeholder="Appended to all drafted emails…"></textarea>
@@ -121,6 +133,8 @@
         clone.querySelector('[name=follow_up_days]').value = data.follow_up_days || 3;
         clone.querySelector('[name=poll_interval_minutes]').value = data.poll_interval_minutes || 15;
         clone.querySelector('[name=unresponded_scan_days]').value = data.unresponded_scan_days || 90;
+        clone.querySelector('[name=watched_thread_alert_hours]').value = data.watched_thread_alert_hours || 48;
+        clone.querySelector('[name=needs_reply_min_confidence]').value = data.needs_reply_min_confidence || 50;
         clone.querySelector('[name=email_signature]').value = data.email_signature || '';
 
         container.innerHTML = '';

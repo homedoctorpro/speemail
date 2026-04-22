@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 44" fill="none">
+  <!-- Speed lines (trailing left) -->
+  <line x1="0" y1="18" x2="7" y2="18" stroke="#93c5fd" stroke-width="2" stroke-linecap="round"/>
+  <line x1="1" y1="23" x2="7" y2="23" stroke="#93c5fd" stroke-width="2" stroke-linecap="round"/>
+  <line x1="0" y1="28" x2="6" y2="28" stroke="#93c5fd" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Envelope body -->
+  <rect x="9" y="15" width="30" height="20" rx="2.5" fill="#3b82f6"/>
+
+  <!-- Envelope flap (triangle pointing up) -->
+  <path d="M9 15 L24 5 L39 15 Z" fill="#2563eb"/>
+  <path d="M9 15 L24 5 L39 15" stroke="#1d4ed8" stroke-width="0.8" fill="none" stroke-linejoin="round"/>
+
+  <!-- Eyes -->
+  <circle cx="18.5" cy="22" r="2.3" fill="white"/>
+  <circle cx="29.5" cy="22" r="2.3" fill="white"/>
+  <circle cx="19.2" cy="22.6" r="1" fill="#1e3a8a"/>
+  <circle cx="30.2" cy="22.6" r="1" fill="#1e3a8a"/>
+
+  <!-- Smile -->
+  <path d="M19.5 27.5 Q24 31 28.5 27.5" stroke="white" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+
+  <!-- Left arm (trailing back) -->
+  <path d="M10 23 L5 19.5" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round"/>
+
+  <!-- Right arm (pumping forward) -->
+  <path d="M38 23 L43 19.5" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round"/>
+
+  <!-- Left leg (stepping back) -->
+  <path d="M17 35 L13 42" stroke="#1d4ed8" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M13 42 L9 42" stroke="#1d4ed8" stroke-width="2.2" stroke-linecap="round"/>
+
+  <!-- Right leg (stepping forward) -->
+  <path d="M31 35 L35 42" stroke="#1d4ed8" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M35 42 L39 42" stroke="#1d4ed8" stroke-width="2.2" stroke-linecap="round"/>
+</svg>
