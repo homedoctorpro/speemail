@@ -34,24 +34,49 @@ _PATTERN_MIN_SAMPLES = 3     # minimum feedback entries to start using the signa
 _PATTERN_STRONG_SAMPLES = 5  # at this count + 0 replies → bypass Claude entirely
 
 _CLASSIFY_SYSTEM = """\
-You classify whether a received email requires a response or action from the recipient.
+You classify whether a received email warrants the recipient's personal attention — meaning they need to do SOMETHING in response to it.
 
-"needs_reply" is true whenever the recipient needs to do SOMETHING in response — a written reply, OR a discrete action like signing a document, reviewing a file, approving a request, filling out a form, delivering materials, or making a decision. The label is "needs_reply" but it means "needs the recipient's attention / response in any form".
+The output field is named `needs_reply` for historical reasons, but it is NOT limited to written replies. `needs_reply=true` means "the recipient needs to take some action as a result of this email". Actions include:
+- Writing a reply (obvious case)
+- Signing a document (DocuSign, PandaDoc, Adobe Sign, etc.)
+- Reviewing a document, design, proof, or proposal
+- Approving a request, budget, or change
+- Filling out a form, questionnaire, or template
+- Delivering a file, asset, or piece of information
+- Making a decision between options
+- Following a link that takes them to work they need to do
+
+CRITICAL: Do NOT say `needs_reply=false` just because the email doesn't explicitly ask for a written reply. If the sender is asking the recipient to sign, review, approve, deliver, or do anything else, that is `needs_reply=true`. A document-signing request is `needs_reply=true` even if the sender doesn't want a written reply back.
 
 Return ONLY valid JSON in this exact format (no prose, no markdown fences):
 {"needs_reply": true, "confidence": 0.85, "reasoning": "one sentence explanation"}
 
 Confidence is 0.0–1.0. Reserve scores above 0.85 for cases where you are very certain.
 
-If "Recipient name" is provided, use it to check salutations: if the email opens with "Hi [OtherName]" and that name clearly refers to a different person, treat it as likely intended for someone else. Common nicknames count as the same person — "Phil" and "Phillip", "Rob" and "Robert", "Chris" and "Christopher", etc. — do NOT flag as a mismatch.
+Examples of `needs_reply=true`:
+- "Here are the renewals for your signature. Happy signing!" → true (signing action)
+- "Can you send me the Q3 numbers by Friday?" → true (deliverable)
+- "Please review and let me know if this looks good." → true (review + respond)
+- "Attached is the contract — please sign and return." → true (signing)
+- "Do you have time Tuesday at 3pm?" → true (scheduling response)
+- "I need your approval on the new vendor." → true (decision)
 
-Addressing is an important signal but not definitive — always weigh it against content:
+Examples of `needs_reply=false`:
+- An automated order confirmation from Amazon → false (no action)
+- "FYI — just sharing the meeting notes." → false (informational)
+- "Thanks, got it!" → false (conversation-closing)
+- A DocuSign system notification that a doc was completed by all parties → false (status update, no action left for recipient)
+- A newsletter → false
+- "I'll take care of it." → false (sender is handling it)
+
+If "Recipient name" is provided, check salutations carefully. If the email opens with "Hi [OtherName]" and that name clearly refers to someone else, treat as lower confidence. But common nicknames count as the same person — "Phil" and "Phillip", "Rob" and "Robert", "Chris" and "Christopher", "Mike" and "Michael" — do NOT flag as a mismatch.
+
+Addressing is an important signal but not definitive:
 - Email sent directly to the recipient alone → strong signal they need to respond
 - Email sent to the recipient and a few others → moderate signal
-- Recipient is CC'd only → usually FYI, lower confidence they need to respond
+- Recipient is CC'd only → usually FYI, lower confidence
 - Recipient is not in To or CC → could be a distribution list, BCC, or alias —
-  if the body clearly addresses them personally, treat it as a direct email;
-  if it looks like a broadcast, lower confidence
+  if the body clearly addresses them personally, treat it as a direct email
 - Addressing unknown → use content signals only
 
 Emails that do NOT need a response regardless of addressing:
@@ -59,19 +84,9 @@ Emails that do NOT need a response regardless of addressing:
 - Shipping and delivery updates
 - Password resets, verification codes, two-factor authentication codes
 - Newsletters, marketing emails, promotional content
-- System notifications and automated alerts
+- System notifications and completion confirmations (doc signed by all, meeting accepted)
 - Emails from addresses containing noreply, no-reply, donotreply, notifications, mailer
-- Emails where the body says "you are receiving this because" or "do not reply"
-
-Emails that DO need a response (when addressed to the recipient):
-- Personal emails from real people asking a direct question
-- Meeting requests or scheduling emails requiring a response
-- Emails from colleagues, clients, or partners expecting an answer
-- Anything where not responding would be rude or leave someone waiting
-- Follow-up emails asking if you received or reviewed something
-- Emails asking the recipient to sign, review, approve, or acknowledge a document
-- Requests to deliver a file, artifact, or piece of information
-- Decisions or approvals the recipient is being asked to make"""
+- Emails where the body says "you are receiving this because" or "do not reply\""""
 
 _DERIVE_SYSTEM = """\
 You analyze email classification decisions and extract reusable rules.
