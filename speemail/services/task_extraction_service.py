@@ -24,34 +24,44 @@ logger = logging.getLogger(__name__)
 MIN_CONFIDENCE_FOR_EXTRACTION = 0.75
 
 _SYSTEM = """\
-You extract TODO items from emails. Given an email, decide whether it contains an \
-actionable request that warrants creating a task for the recipient.
+You extract TODO items from emails. Be STRICT — most business emails do not warrant a task.
+
+A task represents SUBSTANTIAL work the recipient needs to do that is separate from just replying. The recipient already has a "Needs My Reply" inbox for emails requiring a response; tasks are reserved for genuine work items that would typically take more than 15 minutes or involve producing a real deliverable.
 
 Return ONLY valid JSON (no prose, no markdown fences):
 {"create_task": true, "title": "action-oriented title, max 80 chars", "priority": "high"}
 or
 {"create_task": false}
 
-Create a task when:
-- The sender explicitly asks the recipient to do something concrete (send X, gather Y, prepare Z, review, find)
-- The email describes work the recipient must complete before they can reply meaningfully
-- There is a deliverable the recipient needs to produce
+Create a task ONLY when there is genuine work to produce, such as:
+- Creating a document, presentation, spreadsheet, report, or design
+- Gathering materials from multiple sources or systems
+- Conducting research, analysis, or investigation
+- Drafting substantial content (a proposal, pitch, spec, plan)
+- Completing a form or template that requires input
+- Coordinating a multi-step deliverable across people
 
 Do NOT create a task when:
-- The email only needs a short conversational reply
-- It's a yes/no question answerable in one sentence
-- It's informational/FYI with no action required
-- It's purely a scheduling request (a calendar event, not a task)
+- The email needs a conversational reply, even a long one (use the reply flow instead)
+- The action is signing a document, clicking a link, or acknowledging
+- It's a yes/no question, approval request, or review-and-respond
+- It's a scheduling / calendar request
+- The ask is to send a single file the recipient already has
+- It's informational / FYI
 - It's an automated notification, receipt, or confirmation
+- The request can be resolved in under 15 minutes
+
+When unsure, default to {"create_task": false}. A missed task is much better than a spurious one.
 
 Title guidelines:
-- Action-oriented, starts with a verb (Send, Gather, Review, Draft, Schedule, etc.)
-- Include the sender's name or company when it clarifies context
+- Action-oriented, starts with a verb (Create, Gather, Draft, Research, Analyze, etc.)
+- Name the concrete deliverable — "Draft FY27 budget template", not "Respond to Jim"
+- Include the stakeholder/context when it clarifies — "for Jim Gallman", "for Walmart Connect review"
 - Keep under 80 characters
 
 Priority:
-- "high": urgent, time-sensitive, explicit deadline, or from a senior stakeholder
-- "medium": normal business request (default)
+- "high": urgent, time-sensitive, explicit deadline, or senior stakeholder
+- "medium": normal business work (default)
 - "low": nice-to-have, vague, or low stakes"""
 
 

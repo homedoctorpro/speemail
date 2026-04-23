@@ -34,25 +34,27 @@ _PATTERN_MIN_SAMPLES = 3     # minimum feedback entries to start using the signa
 _PATTERN_STRONG_SAMPLES = 5  # at this count + 0 replies → bypass Claude entirely
 
 _CLASSIFY_SYSTEM = """\
-You classify whether a received email requires the recipient to personally write a reply.
+You classify whether a received email requires a response or action from the recipient.
+
+"needs_reply" is true whenever the recipient needs to do SOMETHING in response — a written reply, OR a discrete action like signing a document, reviewing a file, approving a request, filling out a form, delivering materials, or making a decision. The label is "needs_reply" but it means "needs the recipient's attention / response in any form".
 
 Return ONLY valid JSON in this exact format (no prose, no markdown fences):
 {"needs_reply": true, "confidence": 0.85, "reasoning": "one sentence explanation"}
 
 Confidence is 0.0–1.0. Reserve scores above 0.85 for cases where you are very certain.
 
-If "Recipient name" is provided, use it to check salutations: if the email opens with "Hi [OtherName]" and that name does not match the recipient, treat it as likely intended for someone else (lower needs_reply confidence).
+If "Recipient name" is provided, use it to check salutations: if the email opens with "Hi [OtherName]" and that name clearly refers to a different person, treat it as likely intended for someone else. Common nicknames count as the same person — "Phil" and "Phillip", "Rob" and "Robert", "Chris" and "Christopher", etc. — do NOT flag as a mismatch.
 
 Addressing is an important signal but not definitive — always weigh it against content:
-- Email sent directly to the recipient alone → strong signal they need to reply
+- Email sent directly to the recipient alone → strong signal they need to respond
 - Email sent to the recipient and a few others → moderate signal
-- Recipient is CC'd only → usually FYI, lower confidence they need to reply
+- Recipient is CC'd only → usually FYI, lower confidence they need to respond
 - Recipient is not in To or CC → could be a distribution list, BCC, or alias —
   if the body clearly addresses them personally, treat it as a direct email;
   if it looks like a broadcast, lower confidence
 - Addressing unknown → use content signals only
 
-Emails that do NOT need a reply regardless of addressing:
+Emails that do NOT need a response regardless of addressing:
 - Automated receipts, invoices, order confirmations, payment notifications
 - Shipping and delivery updates
 - Password resets, verification codes, two-factor authentication codes
@@ -61,12 +63,15 @@ Emails that do NOT need a reply regardless of addressing:
 - Emails from addresses containing noreply, no-reply, donotreply, notifications, mailer
 - Emails where the body says "you are receiving this because" or "do not reply"
 
-Emails that DO need a reply (when addressed to the recipient):
+Emails that DO need a response (when addressed to the recipient):
 - Personal emails from real people asking a direct question
 - Meeting requests or scheduling emails requiring a response
 - Emails from colleagues, clients, or partners expecting an answer
-- Anything where not replying would be rude or leave someone waiting
-- Follow-up emails asking if you received or reviewed something"""
+- Anything where not responding would be rude or leave someone waiting
+- Follow-up emails asking if you received or reviewed something
+- Emails asking the recipient to sign, review, approve, or acknowledge a document
+- Requests to deliver a file, artifact, or piece of information
+- Decisions or approvals the recipient is being asked to make"""
 
 _DERIVE_SYSTEM = """\
 You analyze email classification decisions and extract reusable rules.
@@ -103,25 +108,56 @@ def _addressing_label(msg: dict, user_email: str | None) -> str:
 _GENERIC_SALUTATIONS = {
     "all", "there", "team", "everyone", "folks", "guys", "friends",
     "sir", "madam", "whom", "it",
+    # Conjunctions/prepositions that follow "Hi," — not names, avoid false mismatches
+    "if", "and", "so", "just", "i", "we", "this", "that", "as", "can", "could",
+    "please", "thanks", "good", "quick", "hope", "apologies", "sorry",
 }
+
+
+def _names_match(greeted: str, user_first_name: str) -> bool:
+    """
+    Return True if the greeted name plausibly refers to the user.
+    Handles common nickname cases by treating prefix matches as equal:
+    'Phil' ↔ 'Phillip', 'Rob' ↔ 'Robert', 'Chris' ↔ 'Christopher'.
+    """
+    g = greeted.lower()
+    u = user_first_name.lower()
+    if g == u:
+        return True
+    # Either name being a prefix of the other covers most diminutive pairs.
+    # Require at least 3 chars on the short side to avoid spurious matches
+    # like "A" matching "Adam".
+    short, long = (g, u) if len(g) <= len(u) else (u, g)
+    if len(short) >= 3 and long.startswith(short):
+        return True
+    return False
 
 
 def _salutation_mismatch(body_preview: str, user_first_name: str) -> str | None:
     """
-    If the email opens with 'Hi [Name]' and Name is not the user, return the greeted name.
-    Returns None if there is no mismatch or not enough info to decide.
+    If the email opens with 'Hi [Name]' and Name is clearly not the user, return
+    the greeted name. Returns None if there is no mismatch or not enough info.
+
+    Only triggers when the greeting is followed by a comma/dash/newline — "Hi Phil-"
+    or "Hi Phil," looks like a name; "Hi If you have a moment" does not.
     """
     if not user_first_name or not body_preview:
         return None
-    m = re.match(r"^(hi|hello|dear|hey),?\s+([a-z]+)", body_preview.strip(), re.IGNORECASE)
+    # Require the greeted token to end with a punctuation boundary so we don't
+    # pick up "Hi If you..." or "Hi I just wanted..." style conversational openers.
+    m = re.match(
+        r"^(hi|hello|dear|hey)\s+([A-Za-z]+)\s*[,\-–—:!\.\n]",
+        body_preview.strip(),
+        re.IGNORECASE,
+    )
     if not m:
         return None
-    greeted = m.group(2).lower()
-    if greeted in _GENERIC_SALUTATIONS:
+    greeted = m.group(2)
+    if greeted.lower() in _GENERIC_SALUTATIONS:
         return None
-    if greeted == user_first_name.lower():
+    if _names_match(greeted, user_first_name):
         return None
-    return m.group(2)  # return original capitalisation for readable reasoning
+    return greeted
 
 
 def _get_sender_history(sender_address: str, db: Session) -> dict | None:
