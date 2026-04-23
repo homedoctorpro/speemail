@@ -245,6 +245,17 @@ def _store_classification(db: Session, msg_id: str, needs_reply: bool, confidenc
     db.commit()
 
 
+def _maybe_extract_task(msg: dict, db: Session, needs_reply: bool, confidence: float) -> None:
+    """Deferred import + exception-safe wrapper — runs after every classify() call."""
+    if not needs_reply:
+        return
+    try:
+        from speemail.services import task_extraction_service
+        task_extraction_service.maybe_create_task(msg, db, confidence)
+    except Exception as exc:
+        logger.warning("Task extraction wrapper failed for %s: %s", msg.get("id"), exc)
+
+
 def classify(msg: dict, db: Session) -> dict:
     """
     Return {'needs_reply': bool, 'confidence': float, 'reasoning': str}.
@@ -254,11 +265,16 @@ def classify(msg: dict, db: Session) -> dict:
 
     cached = db.query(EmailClassification).filter_by(graph_message_id=msg_id).first()
     if cached:
-        return {
+        result = {
             "needs_reply": cached.needs_reply,
             "confidence": cached.confidence,
             "reasoning": cached.reasoning,
         }
+        # Task extraction is idempotent (dedupes on source_graph_message_id),
+        # so safe to call here too — catches emails classified before the
+        # auto-task feature shipped.
+        _maybe_extract_task(msg, db, result["needs_reply"], result["confidence"])
+        return result
 
     sender_address = msg.get("from", {}).get("emailAddress", {}).get("address", "").lower()
     sender_history = _get_sender_history(sender_address, db)
@@ -334,16 +350,7 @@ def classify(msg: dict, db: Session) -> dict:
             reasoning += f" (reduced: {h['skip_rate']:.0%} skip rate from {h['total']} prior emails)"
 
     _store_classification(db, msg_id, needs_reply, confidence, reasoning)
-
-    # Auto-generate a task if this email clearly contains actionable work.
-    # Deferred import avoids a circular dependency at module load.
-    if needs_reply:
-        try:
-            from speemail.services import task_extraction_service
-            task_extraction_service.maybe_create_task(msg, db, confidence)
-        except Exception as exc:
-            logger.warning("Task extraction wrapper failed for %s: %s", msg_id, exc)
-
+    _maybe_extract_task(msg, db, needs_reply, confidence)
     return {"needs_reply": needs_reply, "confidence": confidence, "reasoning": reasoning}
 
 
