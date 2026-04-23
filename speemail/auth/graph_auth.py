@@ -167,7 +167,8 @@ class GraphClient:
         return self.get("/me?$select=displayName,mail,userPrincipalName")
 
     def list_messages(self, folder: str = "Inbox", top: int = 30, skip: int = 0) -> dict:
-        return self.get(
+        # No $orderby — corporate Exchange silently drops it. Callers sort client-side.
+        data = self.get(
             f"/me/mailFolders/{folder}/messages",
             params={
                 "$select": (
@@ -176,10 +177,14 @@ class GraphClient:
                 ),
                 "$top": str(top),
                 "$skip": str(skip),
-                "$orderby": "receivedDateTime desc",
                 "$count": "true",
             },
         )
+        msgs = data.get("value", [])
+        sort_key = "sentDateTime" if folder.lower() == "sentitems" else "receivedDateTime"
+        msgs.sort(key=lambda m: m.get(sort_key, ""), reverse=True)
+        data["value"] = msgs
+        return data
 
     def get_conversation_messages(self, conversation_id: str) -> list[dict]:
         """Return all messages in a conversation, sorted oldest-first."""

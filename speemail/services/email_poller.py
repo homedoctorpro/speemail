@@ -68,10 +68,19 @@ def _extract_addresses(recipients: list[dict]) -> str:
     )
 
 
-def _thread_has_reply(client: GraphClient, conversation_id: str, sent_at: datetime) -> bool:
-    """Return True if any message in the conversation arrived AFTER sent_at."""
+def _thread_has_reply(
+    client: GraphClient,
+    conversation_id: str,
+    sent_at: datetime,
+    user_email: str | None = None,
+) -> bool:
+    """
+    Return True if someone OTHER than the user has sent a message in the conversation
+    after sent_at. The user's own sent items have `receivedDateTime` a second or two
+    past `sentDateTime`, so without the self-filter this function was returning True
+    for every thread and silently disabling auto-watch.
+    """
     sent_str = _fmt(sent_at)
-    # OData filter: messages in this conversation received after sent_at
     filter_q = (
         f"conversationId eq '{conversation_id}' "
         f"and receivedDateTime gt {sent_str}"
@@ -82,10 +91,17 @@ def _thread_has_reply(client: GraphClient, conversation_id: str, sent_at: dateti
             params={
                 "$filter": filter_q,
                 "$select": "id,from,receivedDateTime",
-                "$top": "1",
+                "$top": "10",
             },
         )
-        return len(data.get("value", [])) > 0
+        msgs = data.get("value", [])
+        if user_email:
+            ue = user_email.lower()
+            msgs = [
+                m for m in msgs
+                if m.get("from", {}).get("emailAddress", {}).get("address", "").lower() != ue
+            ]
+        return len(msgs) > 0
     except Exception as exc:
         logger.warning("Thread reply check failed for %s: %s", conversation_id, exc)
         return True  # Assume replied to avoid false follow-ups on errors
@@ -96,8 +112,11 @@ def poll_follow_ups(client: GraphClient, db: Session) -> list[TrackedEmail]:
     Scan SentItems for emails without a reply after FOLLOW_UP_DAYS days.
     Returns new TrackedEmail rows (not yet committed).
     """
+    from speemail.models.tables import Setting
     cutoff = _utcnow() - timedelta(days=settings.follow_up_days)
     cutoff_str = _fmt(cutoff)
+    user_email_row = db.query(Setting).filter_by(key="user_email").first()
+    user_email = user_email_row.value if user_email_row else None
 
     logger.info("Polling sent items for follow-ups (sent before %s)", cutoff_str)
 
@@ -111,10 +130,11 @@ def poll_follow_ups(client: GraphClient, db: Session) -> list[TrackedEmail]:
                     "toRecipients,bodyPreview,body"
                 ),
                 "$top": "20",
-                "$orderby": "sentDateTime desc",
             },
         )
         messages = data.get("value", [])
+        # Client-side sort — corporate Exchange silently drops $orderby.
+        messages.sort(key=lambda m: m.get("sentDateTime", ""), reverse=True)
     except Exception as exc:
         logger.error("Failed to fetch sent items: %s", exc)
         return []
@@ -130,7 +150,7 @@ def poll_follow_ups(client: GraphClient, db: Session) -> list[TrackedEmail]:
         sent_at = _parse_graph_dt(sent_at_str) or _utcnow()
 
         # Skip if reply exists
-        if _thread_has_reply(client, conversation_id, sent_at):
+        if _thread_has_reply(client, conversation_id, sent_at, user_email):
             continue
 
         body_content = msg.get("body", {}).get("content", "")

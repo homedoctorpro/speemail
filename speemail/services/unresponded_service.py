@@ -8,11 +8,13 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from sqlalchemy.orm import Session
 
 from speemail.auth.graph_auth import GraphClient
-from speemail.models.tables import IgnoreRule, Setting, TrackedEmail
+from speemail.models.database import SessionLocal
+from speemail.models.tables import EmailClassification, IgnoreRule, Setting, TrackedEmail
 from speemail.services import classification_service
 
 _DEFAULT_MIN_CONFIDENCE = 0.50
@@ -104,18 +106,27 @@ def get_needs_reply(client: GraphClient, db: Session, limit: int = 20) -> list[d
         _needs_reply_cache["refreshing"] = False
 
 
-def _refresh_in_background(client: GraphClient, db: Session) -> None:
-    """Kick off a one-shot background thread to refresh the cache."""
+def _refresh_in_background(client: GraphClient) -> None:
+    """
+    Kick off a one-shot background thread to refresh the cache.
+    Opens its own DB session — the caller's request session is closed when
+    the HTTP response returns, and SQLAlchemy Sessions aren't thread-safe.
+    """
     if _needs_reply_cache["refreshing"]:
         return
     _needs_reply_cache["refreshing"] = True
 
     def _run() -> None:
         try:
-            get_needs_reply(client, db)
-            logger.debug("Background needs-reply cache refresh complete")
+            session = SessionLocal()
+            try:
+                get_needs_reply(client, session)
+                logger.debug("Background needs-reply cache refresh complete")
+            finally:
+                session.close()
         except Exception as exc:
             logger.warning("Background needs-reply refresh failed: %s", exc)
+        finally:
             _needs_reply_cache["refreshing"] = False
 
     threading.Thread(target=_run, daemon=True).start()
@@ -134,7 +145,7 @@ def get_needs_reply_cached(
     if data is None:
         return None  # first ever load — caller falls back to blocking fetch
     if time.monotonic() - _needs_reply_cache["ts"] >= _CACHE_TTL:
-        _refresh_in_background(client, db)
+        _refresh_in_background(client)
     return data[:limit]
 
 
@@ -146,6 +157,29 @@ def _get_min_confidence(db: Session) -> float:
         except (ValueError, TypeError):
             pass
     return _DEFAULT_MIN_CONFIDENCE
+
+
+def _prewarm_classifications(msgs: list[dict]) -> None:
+    """
+    Run Claude classification in parallel for messages not yet in the DB cache.
+    Each worker uses its own Session so SQLAlchemy thread-safety holds.
+    Without this, first home load serializes ~30 Claude calls (~100s total).
+    """
+    if not msgs:
+        return
+
+    def _worker(msg: dict) -> None:
+        session = SessionLocal()
+        try:
+            classification_service.classify(msg, session)
+        except Exception as exc:
+            logger.warning("Pre-warm classify failed for %s: %s", msg.get("id"), exc)
+        finally:
+            session.close()
+
+    logger.info("Pre-warming %d classifications in parallel", len(msgs))
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(_worker, msgs))
 
 
 def _fetch_needs_reply(
@@ -191,6 +225,34 @@ def _fetch_needs_reply(
         conv_msgs.setdefault(cid, []).append(m)
 
     min_confidence = _get_min_confidence(db)
+
+    # Pre-warm Claude classifications in parallel for messages that will reach
+    # the AI step — skips anything already cached in DB or filtered by cheap
+    # heuristics. Without this, the main loop's sequential classify() calls
+    # make first-load take ~100s on a 50-message inbox.
+    to_prewarm: list[dict] = []
+    cached_ids: set[str] = {
+        row.graph_message_id
+        for row in db.query(EmailClassification.graph_message_id)
+        .filter(EmailClassification.graph_message_id.in_([m.get("id", "") for m in inbox_msgs]))
+        .all()
+    }
+    for msg in inbox_msgs:
+        msg_id = msg.get("id", "")
+        if not msg_id or msg_id in cached_ids:
+            continue
+        conv_id = msg.get("conversationId", "")
+        received_dt = msg.get("receivedDateTime", "")
+        last_sent = sent_conv_dates.get(conv_id)
+        if last_sent and last_sent > received_dt:
+            continue
+        if _matches_ignore_rules(msg, ignore_rules):
+            continue
+        if _is_automated_email(msg):
+            continue
+        to_prewarm.append(msg)
+    _prewarm_classifications(to_prewarm)
+
     unresponded = []
     for msg in inbox_msgs:
         conv_id = msg.get("conversationId", "")

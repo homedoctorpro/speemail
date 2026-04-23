@@ -151,6 +151,13 @@ def _parse(text: str) -> dict:
     return json.loads(text.strip())
 
 
+def _first_text(response) -> str:
+    for block in response.content or []:
+        if getattr(block, "type", None) == "text":
+            return block.text
+    return ""
+
+
 def _format_feedback(f: EmailFeedback) -> str:
     label = "NEEDS REPLY" if f.decision == "needs_reply" else "SKIP"
     reason = f" — {f.reason}" if f.reason else ""
@@ -208,8 +215,16 @@ def _build_classify_prompt(
         parts.append(f"Recipient name: {user_name}")
     parts.append(f"From: {ea.get('name', '')} <{ea.get('address', '')}>")
     parts.append(f"Addressing: {_addressing_label(msg, user_email)}")
-    parts.append(f"Subject: {msg.get('subject', '(no subject)')}")
-    parts.append(f"Preview: {(msg.get('bodyPreview') or '')[:600]}")
+    # Attacker-controlled fields (subject, bodyPreview) are fenced so the
+    # classifier treats them as data, not instructions.
+    parts.append("Subject:")
+    parts.append("---BEGIN SUBJECT---")
+    parts.append(msg.get("subject", "(no subject)"))
+    parts.append("---END SUBJECT---")
+    parts.append("Preview:")
+    parts.append("---BEGIN PREVIEW---")
+    parts.append((msg.get("bodyPreview") or "")[:600])
+    parts.append("---END PREVIEW---")
     return "\n".join(parts)
 
 
@@ -263,7 +278,8 @@ def classify(msg: dict, db: Session) -> dict:
     # Salutation mismatch fast-path: "Hi Sam" when user is not Sam → skip
     user_name_row = db.query(Setting).filter_by(key="user_name").first()
     user_name = user_name_row.value if user_name_row else None
-    user_first_name = user_name.split()[0] if user_name else None
+    user_name_parts = user_name.split() if user_name else []
+    user_first_name = user_name_parts[0] if user_name_parts else None
     body_preview = (msg.get("bodyPreview") or "")
     greeted_name = _salutation_mismatch(body_preview, user_first_name)
     if greeted_name:
@@ -297,7 +313,7 @@ def classify(msg: dict, db: Session) -> dict:
                 msg, feedback, rules, user_email, sender_history, user_name
             )}],
         )
-        result = _parse(response.content[0].text)
+        result = _parse(_first_text(response))
         needs_reply = bool(result.get("needs_reply", False))
         confidence = float(result.get("confidence", 0.5))
         reasoning = str(result.get("reasoning", ""))
@@ -318,6 +334,16 @@ def classify(msg: dict, db: Session) -> dict:
             reasoning += f" (reduced: {h['skip_rate']:.0%} skip rate from {h['total']} prior emails)"
 
     _store_classification(db, msg_id, needs_reply, confidence, reasoning)
+
+    # Auto-generate a task if this email clearly contains actionable work.
+    # Deferred import avoids a circular dependency at module load.
+    if needs_reply:
+        try:
+            from speemail.services import task_extraction_service
+            task_extraction_service.maybe_create_task(msg, db, confidence)
+        except Exception as exc:
+            logger.warning("Task extraction wrapper failed for %s: %s", msg_id, exc)
+
     return {"needs_reply": needs_reply, "confidence": confidence, "reasoning": reasoning}
 
 
@@ -345,7 +371,7 @@ def derive_rules(db: Session) -> str | None:
             system=_DERIVE_SYSTEM,
             messages=[{"role": "user", "content": prompt}],
         )
-        rules_text = response.content[0].text.strip()
+        rules_text = _first_text(response).strip()
     except Exception as exc:
         logger.warning("Rule derivation failed: %s", exc)
         return None

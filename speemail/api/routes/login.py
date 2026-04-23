@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hmac
+
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
@@ -9,11 +11,18 @@ from speemail.middleware.auth_middleware import _make_token
 router = APIRouter(tags=["auth"])
 
 
+def _safe_next(value: str | None) -> str:
+    """Only allow same-origin relative paths — blocks //evil.com and https://evil.com."""
+    if not value or not value.startswith("/") or value.startswith("//"):
+        return "/"
+    return value
+
+
 @router.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, next: str = "/", error: str = ""):
     return request.app.state.templates.TemplateResponse(
         "login.html",
-        {"request": request, "next": next, "error": error},
+        {"request": request, "next": _safe_next(next), "error": error},
     )
 
 
@@ -23,20 +32,23 @@ def login_submit(
     password: str = Form(...),
     next: str = Form("/"),
 ):
-    if settings.app_password and password != settings.app_password:
+    next_url = _safe_next(next)
+    expected = settings.app_password or ""
+    if expected and not hmac.compare_digest(password, expected):
         return request.app.state.templates.TemplateResponse(
             "login.html",
-            {"request": request, "next": next, "error": "Incorrect password."},
+            {"request": request, "next": next_url, "error": "Incorrect password."},
             status_code=401,
         )
 
-    response = RedirectResponse(next or "/", status_code=302)
+    response = RedirectResponse(next_url, status_code=302)
     response.set_cookie(
         "speemail_auth",
         _make_token(),
         max_age=86400 * 30,  # 30 days
         httponly=True,
         samesite="lax",
+        secure=settings.server_mode,
     )
     return response
 

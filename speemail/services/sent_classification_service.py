@@ -60,6 +60,13 @@ def _parse(text: str) -> dict:
     return json.loads(text.strip())
 
 
+def _first_text(response) -> str:
+    for block in response.content or []:
+        if getattr(block, "type", None) == "text":
+            return block.text
+    return ""
+
+
 def _format_feedback(scan: SentEmailScan) -> str:
     label = "EXPECTS REPLY" if scan.user_decision == "expects_reply" else "NO REPLY EXPECTED"
     return f"[{label}] To: {scan.recipient} | Subject: {scan.subject}"
@@ -93,8 +100,15 @@ def _build_prompt(
     )
     parts.append("Sent email to classify:")
     parts.append(f"To: {to_addrs}")
-    parts.append(f"Subject: {msg.get('subject', '(no subject)')}")
-    parts.append(f"Preview: {(msg.get('bodyPreview') or '')[:600]}")
+    # Attacker-controlled fields fenced as data, not instructions.
+    parts.append("Subject:")
+    parts.append("---BEGIN SUBJECT---")
+    parts.append(msg.get("subject", "(no subject)"))
+    parts.append("---END SUBJECT---")
+    parts.append("Preview:")
+    parts.append("---BEGIN PREVIEW---")
+    parts.append((msg.get("bodyPreview") or "")[:600])
+    parts.append("---END PREVIEW---")
     return "\n".join(parts)
 
 
@@ -131,7 +145,7 @@ def classify_sent(msg: dict, db: Session) -> dict:
             system=_CLASSIFY_SYSTEM,
             messages=[{"role": "user", "content": _build_prompt(msg, feedback, rules)}],
         )
-        result = _parse(response.content[0].text)
+        result = _parse(_first_text(response))
         expects_reply = bool(result.get("expects_reply", False))
         confidence = float(result.get("confidence", 0.5))
         reasoning = str(result.get("reasoning", ""))
@@ -193,7 +207,7 @@ def derive_rules(db: Session) -> str | None:
             system=_DERIVE_SYSTEM,
             messages=[{"role": "user", "content": prompt}],
         )
-        rules_text = response.content[0].text.strip()
+        rules_text = _first_text(response).strip()
     except Exception as exc:
         logger.warning("Sent rule derivation failed: %s", exc)
         return None
@@ -230,20 +244,22 @@ def scan_sent_items(
     from speemail.services.watched_threads_service import add as add_watch
     from speemail.services.email_poller import _thread_has_reply, _parse_graph_dt
 
+    user_email_row = db.query(Setting).filter_by(key="user_email").first()
+    user_email = user_email_row.value if user_email_row else None
     watched = 0
     for msg in msgs:
         msg_id = msg.get("id", "")
         if not msg_id:
             continue
 
-        # Already scanned — skip
-        if db.query(SentEmailScan).filter_by(graph_message_id=msg_id).first():
-            continue
-
-        # Already manually watched
+        # Already watched (auto or manual) — don't create a duplicate
         if db.query(WatchedThread).filter_by(graph_message_id=msg_id).first():
             continue
 
+        # classify_sent() reads from the scan cache internally, so this is
+        # cheap for already-classified messages. We must still reach the
+        # watch-creation step for cached classifications that never got
+        # a watch (e.g. after bug fixes to the watch-creation logic).
         clf = classify_sent(msg, db)
 
         if not clf["expects_reply"] or clf["confidence"] < min_confidence:
@@ -256,7 +272,7 @@ def scan_sent_items(
         # Check if a reply already exists before creating a watch
         conv_id = msg.get("conversationId", "")
         sent_at = _parse_graph_dt(msg.get("sentDateTime")) or __import__("datetime").datetime.utcnow()
-        if conv_id and _thread_has_reply(client_graph, conv_id, sent_at):
+        if conv_id and _thread_has_reply(client_graph, conv_id, sent_at, user_email):
             logger.debug("Reply already exists for sent email, skipping watch: %s", msg.get("subject"))
             continue
 

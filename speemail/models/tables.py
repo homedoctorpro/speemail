@@ -90,6 +90,11 @@ class Task(Base):
     # 'high' | 'medium' | 'low'
     due_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     related_email_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Graph message ID of the incoming email that spawned this task (auto-generated).
+    # Used to dedupe so reclassifying the same email doesn't create duplicate tasks.
+    source_graph_message_id: Mapped[str | None] = mapped_column(
+        String, nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()
     )

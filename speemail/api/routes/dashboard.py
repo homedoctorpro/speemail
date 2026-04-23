@@ -59,7 +59,8 @@ def debug_unresponded(
     client: GraphClient = Depends(get_graph_dep),
 ):
     sent_data = client.get("/me/mailFolders/SentItems/messages", params={"$select": "conversationId,sentDateTime", "$top": "10"})
-    inbox_data = client.get("/me/mailFolders/Inbox/messages", params={"$select": "id,subject,receivedDateTime,conversationId", "$top": "10", "$orderby": "receivedDateTime desc"})
+    inbox_data = client.get("/me/mailFolders/Inbox/messages", params={"$select": "id,subject,receivedDateTime,conversationId", "$top": "10"})
+    inbox_data["value"] = sorted(inbox_data.get("value", []), key=lambda m: m.get("receivedDateTime", ""), reverse=True)
     sent_conv_dates: dict = {}
     for m in sent_data.get("value", []):
         c = m.get("conversationId", "")

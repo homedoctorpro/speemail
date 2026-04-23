@@ -51,6 +51,14 @@ def _parse_json_response(text: str) -> dict:
     return json.loads(text.strip())
 
 
+def _first_text(response) -> str:
+    """Return the first text block from a Claude response, or '' if none."""
+    for block in response.content or []:
+        if getattr(block, "type", None) == "text":
+            return block.text
+    return ""
+
+
 def _call_claude(client: anthropic.Anthropic, system: str, user: str) -> str:
     response = client.messages.create(
         model=MODEL,
@@ -58,7 +66,7 @@ def _call_claude(client: anthropic.Anthropic, system: str, user: str) -> str:
         system=system,
         messages=[{"role": "user", "content": user}],
     )
-    return response.content[0].text
+    return _first_text(response)
 
 
 FOLLOW_UP_SYSTEM = """\

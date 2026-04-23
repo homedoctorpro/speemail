@@ -86,11 +86,24 @@
   }
 
   // Called by the detail pane feedback buttons after a decision is recorded.
+  // Duplicate row IDs exist across the All/Needs-Reply/Awaiting tabs, so we scope
+  // queries by tab container and match on data-message-id (not getElementById).
   function onInboxFeedback(messageId, decision) {
-    var filterExcludes = (decision === 'skip' || decision === 'resolved') && _activeTab === 'needs-reply';
-    if (filterExcludes) {
-      var row = document.getElementById('row-' + messageId);
-      if (row) row.remove();
+    if (decision !== 'skip' && decision !== 'resolved') return;
+    var sel = '[data-message-id="' + CSS.escape(messageId) + '"]';
+
+    var nrTab = document.getElementById('inbox-tab-needs-reply');
+    var nrRow = nrTab ? nrTab.querySelector(sel) : null;
+    if (nrRow) nrRow.remove();
+
+    // Drop the amber "needs reply" tint in the All tab so the row stops flagging.
+    var allTab = document.getElementById('inbox-tab-all');
+    var allRow = allTab ? allTab.querySelector(sel) : null;
+    if (allRow) allRow.classList.remove('state-needs_reply');
+
+    // If the user is currently on the needs-reply tab, clear the detail pane
+    // because the message they just resolved is no longer in this list.
+    if (_activeTab === 'needs-reply') {
       document.getElementById('message-detail-pane').innerHTML =
         '<div class="detail-empty"><div class="empty-title">Marked — no reply needed</div></div>';
       document.getElementById('inbox-list-pane').classList.remove('detail-open');

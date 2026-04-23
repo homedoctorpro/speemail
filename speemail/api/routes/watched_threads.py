@@ -6,8 +6,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
-from speemail.api.deps import get_db_dep, get_graph_dep
-from speemail.auth.graph_auth import GraphClient
+from speemail.api.deps import get_db_dep
 from speemail.services import sent_classification_service, watched_threads_service
 
 router = APIRouter(tags=["watched_threads"])

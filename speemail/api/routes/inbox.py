@@ -26,7 +26,6 @@ def _get_message_states(messages: list[dict], db: Session) -> dict[str, str]:
 
     # Conversation IDs of active watched threads
     watched_rows = db.query(WatchedThread).filter_by(resolved=False, has_reply=False).all()
-    watched_conv_ids = {w.graph_conversation_id for w in watched_rows if w.graph_conversation_id}
     # Sent-thread watches (source != manual_inbox) → awaiting; inbox watches → watched
     awaiting_conv_ids = {
         w.graph_conversation_id for w in watched_rows
