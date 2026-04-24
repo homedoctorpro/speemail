@@ -3,10 +3,17 @@ Inbox browsing helpers — thin wrappers around GraphClient for use in routes.
 """
 from __future__ import annotations
 
+import logging
+import re
 from urllib.parse import quote
 
 from speemail.auth.graph_auth import GraphClient
 from speemail.services.ai_engine import html_to_text
+
+logger = logging.getLogger(__name__)
+
+# Matches `src="cid:..."` or `src='cid:...'` (Outlook-style inline image refs).
+_CID_SRC_RE = re.compile(r"""src=(["'])cid:([^"']+)\1""", re.IGNORECASE)
 
 
 def get_messages_page(client: GraphClient, folder: str = "Inbox", top: int = 30, next_link: str = "") -> dict:
@@ -42,6 +49,7 @@ def get_messages_page(client: GraphClient, folder: str = "Inbox", top: int = 30,
 
 def get_message_detail(client: GraphClient, message_id: str) -> dict:
     msg = client.get_message(message_id)
+    _inline_cid_images(client, msg)
     _attach_body_text(msg)
     return msg
 
@@ -50,6 +58,7 @@ def get_conversation_thread(client: GraphClient, conversation_id: str) -> list[d
     """Return all messages in a conversation, oldest-first, with body text attached."""
     msgs = client.get_conversation_messages(conversation_id)
     for m in msgs:
+        _inline_cid_images(client, m)
         _attach_body_text(m)
     return msgs
 
@@ -60,6 +69,63 @@ def _attach_body_text(msg: dict) -> None:
         msg["body_text"] = html_to_text(body.get("content", ""))
     else:
         msg["body_text"] = body.get("content", "")
+
+
+def _inline_cid_images(client: GraphClient, msg: dict) -> None:
+    """
+    Rewrite `<img src="cid:...">` references to inline data URIs so embedded
+    images (Outlook signatures, forwarded screenshots) actually render. Browsers
+    can't resolve cid: URLs on their own; we fetch the inline attachments from
+    Graph and substitute their base64 bytes.
+
+    Mutates msg['body']['content'] in place. No-op for non-HTML bodies or bodies
+    with no cid references.
+    """
+    body = msg.get("body") or {}
+    if body.get("contentType", "").lower() != "html":
+        return
+    content = body.get("content") or ""
+    if "cid:" not in content.lower():
+        return
+    msg_id = msg.get("id")
+    if not msg_id:
+        return
+
+    try:
+        # Don't pass $select — Graph rejects it for certain attachment subtypes.
+        data = client.get(f"/me/messages/{msg_id}/attachments")
+    except Exception as exc:
+        logger.warning("Failed to fetch attachments for %s: %s", msg_id, exc)
+        return
+
+    # contentId may arrive wrapped in angle brackets ("<abc@host>") — strip them.
+    cid_map: dict[str, str] = {}
+    for att in data.get("value", []):
+        if not att.get("isInline"):
+            continue
+        cid = (att.get("contentId") or "").strip().strip("<>")
+        if not cid:
+            continue
+        ct = att.get("contentType") or "image/png"
+        bytes_b64 = att.get("contentBytes")
+        if not bytes_b64:
+            continue
+        cid_map[cid.lower()] = f"data:{ct};base64,{bytes_b64}"
+
+    if not cid_map:
+        return
+
+    def _replace(match: re.Match) -> str:
+        quote_char = match.group(1)
+        cid = match.group(2).strip().lower()
+        # Some emails use "cid:image001.png@01DC..." — match on the full token first,
+        # then on the part before the '@' as a fallback.
+        data_url = cid_map.get(cid) or cid_map.get(cid.split("@", 1)[0])
+        if data_url:
+            return f"src={quote_char}{data_url}{quote_char}"
+        return match.group(0)
+
+    body["content"] = _CID_SRC_RE.sub(_replace, content)
 
 
 def format_recipients(recipients: list[dict]) -> str:
